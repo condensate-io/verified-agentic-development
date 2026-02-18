@@ -1,6 +1,6 @@
 # Verified Agentic Development (VAD): A Control-System Model for Enterprise Software
 
-##Executive Summary
+## Executive Summary
 Enterprise software delivery is breaking under three pressures:
 
 System complexity (distributed, data-heavy, AI-integrated systems)
@@ -38,7 +38,7 @@ AI-assisted development increases throughput but amplifies:
 
 The industry needs a system that scales assurance at the same rate as acceleration.
 
-##2. Foundational Principles
+## 2. Foundational Principles
 
 Principle 1: Intent is Primary
 Every change must begin with explicit, structured intent:
@@ -65,7 +65,7 @@ Audit artifacts are generated during development, not assembled after.
 Principle 5: Delivery is a Feedback-Control System
 Production telemetry feeds back into intent refinement and proof strengthening.
 
-##3. The Core Artifact: The Executable Intent Package (EIP)
+## 3. The Core Artifact: The Executable Intent Package (EIP)
 The new atomic unit of enterprise delivery is not a PR or ticket.
 It is the Executable Intent Package (EIP).
 An EIP contains:
@@ -116,7 +116,7 @@ An EIP contains:
 
   An EIP is complete only when its proof obligations are executable
 
-##4. The Verified Agentic Loop
+## 4. The Verified Agentic Loop
 VAD replaces linear workflows with a verification loop:
 Step 1: Intent Formalization
 Ambiguity needs to be surfaced and resolved before implementation begins.
