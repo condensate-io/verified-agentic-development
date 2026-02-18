@@ -9,7 +9,7 @@ Acceleration pressure (AI-assisted development, faster release cycles)
 
 Traditional methodologies—waterfall, Agile, DevOps—optimize workflow, not assurance. Even Spec-Driven Development (SDD) and Test-Driven Development (TDD), while powerful, are insufficient when applied independently in modern AI-augmented environments.
 
-This whitepaper proposes a new paradigm:
+This whitepaper proposes a hybrid approach:
 
 Verified Agentic Development (VAD)
 A control-system model where intent is formalized, proof obligations are executable, and agents operate within bounded verification loops under governance constraints.
