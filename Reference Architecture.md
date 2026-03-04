@@ -1,7 +1,9 @@
 Verified Agentic Development (VAD)
 Reference Architecture — Maturity Model View
+> For the full maturity model narrative, see [maturity_model.md](maturity_model.md).
 Level 1–2: Structured + Bounded Agentic Development
 
+```mermaid
 flowchart LR
     A[Intent / EIP] --> B[Proof Planning]
     B --> C[Builder Agent]
@@ -14,6 +16,7 @@ flowchart LR
     H --> I[Telemetry]
     I --> J[Invariant Updates]
     J --> A
+```
 
 Characteristics
 
@@ -27,6 +30,7 @@ This stage introduces control loops but autonomy remains bounded.
 
 Level 3: Multi-Agent Verified Orchestration
 
+```mermaid
 flowchart TB
     A1[Intent / EIP] --> P[Planner Agent]
 
@@ -47,6 +51,7 @@ flowchart TB
     R --> T[Telemetry + SLOs]
     T --> I[Invariant & Risk Register Updates]
     I --> A1
+```
 
 Additions at this Level
 
@@ -60,6 +65,7 @@ Autonomy increases — but governance hardens.
 
 Level 4: Enterprise Agentic Operating System
 
+```mermaid
 flowchart LR
 
     subgraph Governance Plane
@@ -109,6 +115,7 @@ flowchart LR
     M2 -.-> A1
     M1 -.-> A2
     M3 -.-> GP4
+```
 
 Architectural Layers Explained
 1. Governance Plane
@@ -156,6 +163,7 @@ Telemetry closes the loop.
 
 Maturity Progression (Condensed View)
 
+```mermaid
 flowchart LR
     L0[Assisted Coding]
     L1[Structured Intent + TDD]
@@ -164,6 +172,7 @@ flowchart LR
     L4[Enterprise Agentic OS]
 
     L0 --> L1 --> L2 --> L3 --> L4
+```
 
 At low maturity:
 AI accelerates output.

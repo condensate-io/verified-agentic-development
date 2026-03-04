@@ -14,6 +14,8 @@ This whitepaper proposes a hybrid approach:
 Verified Agentic Development (VAD)
 A control-system model where intent is formalized, proof obligations are executable, and agents operate within bounded verification loops under governance constraints.
 
+> See [the VAD maturity model](maturity_model.md) for a structured progression from assisted coding to a verified agentic OS.
+
 The core shift:
 From “code as the primary artifact” → to intent + proof + governance as the primary artifacts.
 
@@ -118,6 +120,19 @@ An EIP contains:
 
 ## 4. The Verified Agentic Loop
 VAD replaces linear workflows with a verification loop:
+
+```mermaid
+flowchart LR
+    Intent[Intent Formalization]
+    Proof[Proof Planning]
+    Build[Agentic Construction]
+    Verify[Adversarial Verification]
+    Release[Controlled Release]
+    Telemetry[Telemetry Feedback]
+
+    Intent --> Proof --> Build --> Verify --> Release --> Telemetry --> Intent
+```
+
 Step 1: Intent Formalization
 Ambiguity needs to be surfaced and resolved before implementation begins.
 Outputs: 
