@@ -1,5 +1,9 @@
 # Verified Agentic Development (VAD): A Control-System Model for Enterprise Software
 
+> **v0.1 Reference Implementation**: This repository contains the v0.1 reference implementation of VAD, featuring executable machinery for the verification loop. This includes CLI tools for evaluating Executable Intent Packages (EIPs) through concentric loops, a retro stage (`vad eip retro`) for autonomous learning, and integrated testing (`pytest`).
+
+> **Environment**: The VAD implementation is entirely OS-agnostic (pure Python) and runs natively on Windows, macOS, or Linux. While Docker and WSL can be used as an *optional* isolated convenience environment, they are not strictly required. Note that `opa` (Open Policy Agent) is a system dependency that must be installed on your native host path if running without Docker.
+
 ## Executive Summary
 Enterprise software delivery is breaking under three pressures:
 
@@ -274,7 +278,12 @@ to:
 
 _A continuously verified operating system of business intent_
 
-## Conclusion
+## 11. Integration with Condensate Core
+While VAD provides the governance loop and execution framework, `condensate-io/core` serves as the semantic memory storage engine. VAD's `MemoryGateway` and `MemoryScope.RETROSPECTIVE` can be backed by Condensate Core's "Events" and "Learnings". Using the `CondensateClient` Python SDK, VAD can persist evidence bundles, evaluation outcomes, and project memory context directly to the core API.
+
+For a detailed example, see the [Condensate Integration Guide](docs/condensate-integration.md).
+
+## 12. Conclusion
 The next era of enterprise development will not be defined by faster coding.
 It will be defined by faster verification under control.
 

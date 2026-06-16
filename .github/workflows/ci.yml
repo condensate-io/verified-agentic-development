@@ -1,0 +1,63 @@
+name: CI / Evidence Loop
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  test-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.10"
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e ".[dev]"
+        
+    - name: Install OPA
+      run: |
+        curl -L -o opa https://openpolicyagent.org/downloads/v0.61.0/opa_linux_amd64_static
+        chmod +x opa
+        sudo mv opa /usr/local/bin/
+
+    - name: Run tests
+      run: pytest tests/
+
+    - name: Emit Provenance Evidence
+      run: |
+        # In a real pipeline, we'd run a build script that calls ProvenanceEmitter
+        # For now, we simulate building an agent and emitting the provenance.
+        python -c "
+        from vad.agents.card import AgentCard, AgentCapabilities
+        from vad.evidence.provenance import ProvenanceEmitter
+        
+        card = AgentCard(
+            name='TestAgent',
+            description='Test Agent for CI',
+            capabilities=AgentCapabilities(
+                tools=['read_file'],
+                model_tier='tier2',
+                memory_scope='agent_local'
+            ),
+            builder='alice',
+            approver='bob'
+        )
+        
+        emitter = ProvenanceEmitter()
+        filepath = emitter.emit(card)
+        print(f'Provenance emitted to {filepath}')
+        "
+
+    - name: Archive Provenance Artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: provenance-artifacts
+        path: provenance_artifacts/

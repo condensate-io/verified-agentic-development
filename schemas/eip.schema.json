@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EIP",
+  "type": "object",
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "name": {
+      "type": "string"
+    },
+    "risk_tier": {
+      "type": "string",
+      "enum": ["low", "medium", "high"]
+    },
+    "goal": {
+      "type": "object",
+      "properties": {
+        "description": { "type": "string" },
+        "success_criteria": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["description", "success_criteria"]
+    },
+    "invariants": {
+      "type": "object",
+      "properties": {
+        "security": { "type": "array", "items": { "type": "string" } },
+        "performance": { "type": "array", "items": { "type": "string" } },
+        "functional": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "proof_obligations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "kind": { "type": "string" },
+          "description": { "type": "string" }
+        },
+        "required": ["id", "kind", "description"]
+      }
+    }
+  },
+  "required": ["version", "name", "risk_tier", "goal", "invariants", "proof_obligations"]
+}

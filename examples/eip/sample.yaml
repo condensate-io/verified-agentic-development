@@ -1,0 +1,16 @@
+version: 1.0.0
+name: Sample EIP
+risk_tier: low
+goal:
+  description: Build a sample application.
+  success_criteria:
+    - Must pass all tests.
+invariants:
+  security:
+    - No direct DB access.
+  performance: []
+  functional: []
+proof_obligations:
+  - id: po-1
+    kind: unit_test
+    description: Prove no direct DB access.
