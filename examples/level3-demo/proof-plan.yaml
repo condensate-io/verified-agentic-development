@@ -1,0 +1,12 @@
+schema_version: 1.0.0
+eip_version: 1.0.0
+eip_digest: level3-demo-eip-digest
+mappings:
+  - obligation_id: demo-po-unit
+    test_command: pytest examples/level3-demo/repo/tests
+  - obligation_id: demo-po-provider
+    test_command: vad effort score --type feature --warn-only
+  - obligation_id: demo-po-deploy
+    test_command: vad deploy dry-run examples/level3-demo/deployment-target.yaml
+required_manual_gates:
+  - release_guardian_approval

@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>VAD Control</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Verified Agentic Development</p>
+          <h1>Control Surface</h1>
+        </div>
+        <span id="health-status" class="status">Checking</span>
+      </header>
+
+      <section class="workspace">
+        <aside class="runs-pane" aria-label="Runs">
+          <div class="pane-heading">
+            <h2>Runs</h2>
+            <button id="refresh-runs" type="button">Refresh</button>
+          </div>
+          <div id="run-list" class="run-list" aria-live="polite"></div>
+        </aside>
+
+        <section class="detail-pane" aria-label="Evidence">
+          <section id="dashboard-panel" class="dashboard-panel">
+            <div class="pane-heading">
+              <h2>Dashboard</h2>
+              <div class="button-row">
+                <button id="replay-dashboard" type="button">Replay</button>
+                <button id="refresh-dashboard" type="button">Refresh</button>
+              </div>
+            </div>
+            <div id="status-summary" class="dashboard-summary"></div>
+            <section>
+              <h2>Active Clients</h2>
+              <div id="active-clients"></div>
+            </section>
+            <section>
+              <h2>Task Board</h2>
+              <div id="task-board"></div>
+            </section>
+            <div class="dashboard-grid">
+              <section>
+                <h2>Proofs</h2>
+                <div id="proof-status"></div>
+              </section>
+              <section>
+                <h2>Terminal</h2>
+                <div id="terminal-status"></div>
+              </section>
+            </div>
+            <section>
+              <div class="pane-heading">
+                <h2>Event Timeline</h2>
+                <span id="timeline-count" class="timeline-count">0 events</span>
+              </div>
+              <div class="timeline-filters" aria-label="Event timeline filters">
+                <label>Run<select id="timeline-filter-run"></select></label>
+                <label>Client<select id="timeline-filter-client"></select></label>
+                <label>Status<select id="timeline-filter-status"></select></label>
+                <label>Kind<select id="timeline-filter-kind"></select></label>
+                <label>Role<select id="timeline-filter-role"></select></label>
+              </div>
+              <div id="event-timeline"></div>
+            </section>
+            <div class="dashboard-grid">
+              <section>
+                <h2>Activity</h2>
+                <div id="activity-stream"></div>
+              </section>
+              <section>
+                <h2>Work Items</h2>
+                <div id="work-items"></div>
+              </section>
+            </div>
+            <section>
+              <h2>Plugins</h2>
+              <div id="plugin-status"></div>
+            </section>
+            <div class="dashboard-grid dashboard-views">
+              <section><h2>Swarms</h2><div id="swarm-view"></div></section>
+              <section><h2>Providers</h2><div id="provider-view"></div></section>
+              <section><h2>Signing</h2><div id="signing-view"></div></section>
+              <section><h2>Deployments</h2><div id="deployment-view"></div></section>
+            </div>
+          </section>
+
+          <div id="evidence-detail" class="evidence-detail">
+            <p class="empty">Select a run.</p>
+          </div>
+
+          <form id="approval-panel" class="approval-panel">
+            <h2>Release Approval</h2>
+            <label>
+              Actor
+              <input name="actor" value="release-guardian" autocomplete="off">
+            </label>
+            <label>
+              Role
+              <input name="actor_role" value="release_guardian" autocomplete="off">
+            </label>
+            <label>
+              Reason
+              <input name="reason" value="Proofs reviewed." autocomplete="off">
+            </label>
+            <button type="submit">Record Approval</button>
+            <div id="approval-result" class="approval-result denied" aria-live="polite">
+              <h3>Denied</h3>
+              <ul><li>No run selected.</li></ul>
+            </div>
+          </form>
+        </section>
+      </section>
+    </main>
+    <script src="app.js"></script>
+  </body>
+</html>

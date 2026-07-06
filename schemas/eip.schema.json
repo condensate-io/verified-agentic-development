@@ -14,6 +14,10 @@
       "type": "string",
       "enum": ["low", "medium", "high"]
     },
+    "autonomy_tier": {
+      "type": "string",
+      "enum": ["manual", "assisted", "bounded", "autonomous"]
+    },
     "goal": {
       "type": "object",
       "properties": {
@@ -21,6 +25,14 @@
         "success_criteria": { "type": "array", "items": { "type": "string" } }
       },
       "required": ["description", "success_criteria"]
+    },
+    "non_goals": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "scope_boundaries": {
+      "type": "array",
+      "items": { "type": "string" }
     },
     "invariants": {
       "type": "object",
@@ -36,12 +48,108 @@
         "type": "object",
         "properties": {
           "id": { "type": "string" },
-          "kind": { "type": "string" },
+          "kind": {
+            "type": "string",
+            "enum": ["unit", "property", "contract", "security", "performance", "policy", "release", "telemetry", "manual_gate"]
+          },
           "description": { "type": "string" }
         },
         "required": ["id", "kind", "description"]
       }
+    },
+    "constraints": {
+      "type": "object",
+      "properties": {
+        "security": { "type": "array", "items": { "type": "string" } },
+        "privacy": { "type": "array", "items": { "type": "string" } },
+        "operational": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["security", "privacy", "operational"]
+    },
+    "tool_permissions": {
+      "type": "object",
+      "properties": {
+        "allowed": { "type": "array", "items": { "type": "string" } },
+        "denied": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["allowed", "denied"]
+    },
+    "memory_requirements": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "scope": { "type": "string" },
+          "purpose": { "type": "string" },
+          "max_payload_size": { "type": "integer", "minimum": 1 }
+        },
+        "required": ["scope", "purpose"]
+      }
+    },
+    "model_budget": {
+      "type": "object",
+      "properties": {
+        "max_tokens": { "type": "integer", "minimum": 0 },
+        "max_cost": { "type": "number", "minimum": 0 },
+        "max_loop_depth": { "type": "integer", "minimum": 1 }
+      },
+      "required": ["max_tokens", "max_cost", "max_loop_depth"]
+    },
+    "release_requirements": {
+      "type": "object",
+      "properties": {
+        "required": { "type": "boolean" },
+        "strategy": { "type": ["string", "null"] },
+        "gates": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["required", "gates"]
+    },
+    "telemetry_requirements": {
+      "type": "object",
+      "properties": {
+        "required": { "type": "boolean" },
+        "signals": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["required", "signals"]
     }
   },
-  "required": ["version", "name", "risk_tier", "goal", "invariants", "proof_obligations"]
+  "required": [
+    "version",
+    "name",
+    "goal",
+    "non_goals",
+    "risk_tier",
+    "autonomy_tier",
+    "scope_boundaries",
+    "invariants",
+    "constraints",
+    "proof_obligations",
+    "tool_permissions",
+    "memory_requirements",
+    "model_budget",
+    "release_requirements",
+    "telemetry_requirements"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "release_requirements": {
+            "properties": {
+              "required": { "const": true }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "telemetry_requirements": {
+            "properties": {
+              "required": { "const": true }
+            }
+          }
+        }
+      }
+    }
+  ]
 }

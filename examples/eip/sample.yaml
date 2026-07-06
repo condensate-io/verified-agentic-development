@@ -1,16 +1,46 @@
 version: 1.0.0
 name: Sample EIP
 risk_tier: low
+autonomy_tier: assisted
 goal:
   description: Build a sample application.
   success_criteria:
     - Must pass all tests.
+non_goals:
+  - Do not deploy to production.
+scope_boundaries:
+  - examples/app
 invariants:
   security:
     - No direct DB access.
   performance: []
   functional: []
+constraints:
+  security:
+    - No shell access outside test execution.
+  privacy: []
+  operational: []
 proof_obligations:
   - id: po-1
-    kind: unit_test
+    kind: unit
     description: Prove no direct DB access.
+tool_permissions:
+  allowed:
+    - pytest
+  denied:
+    - network
+memory_requirements:
+  - scope: project
+    purpose: sample validation
+    max_payload_size: 1024
+model_budget:
+  max_tokens: 10000
+  max_cost: 1.0
+  max_loop_depth: 3
+release_requirements:
+  required: false
+  strategy: null
+  gates: []
+telemetry_requirements:
+  required: false
+  signals: []

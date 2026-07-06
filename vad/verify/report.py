@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import Any, List, Optional
 from datetime import datetime
 from vad.proof.plan import VerifyStatus
 
@@ -8,6 +8,7 @@ class VerifierResult(BaseModel):
     status: VerifyStatus
     output: str
     error: Optional[str] = None
+    tool_call: dict[str, Any] | None = None
 
 class VerifierReport(BaseModel):
     timestamp: datetime

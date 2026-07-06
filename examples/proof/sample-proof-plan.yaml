@@ -1,0 +1,7 @@
+schema_version: 1.0.0
+eip_version: 1.0.0
+eip_digest: example-digest
+mappings:
+  - obligation_id: po-1
+    test_command: pytest examples/app/tests
+required_manual_gates: []

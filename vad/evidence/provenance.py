@@ -11,7 +11,7 @@ class ProvenanceEmitter:
         self.policy_path = policy_path
         self.output_dir = output_dir
 
-    def emit(self, agent_card: AgentCard) -> str:
+    def emit(self, agent_card: AgentCard, run_evidence=None) -> str:
         """
         Validates the agent card against policies, builds an evidence bundle,
         and emits a provenance record.
@@ -31,13 +31,18 @@ class ProvenanceEmitter:
         if not is_allowed:
             raise ValueError("Build failed: Policy denies build.")
 
+        linked_evidence_digest = None
+        if run_evidence is not None:
+            linked_evidence_digest = EvidenceBundle(run_evidence).compute_hash()
+
         # 2. Bundle evidence
         evidence_data = {
             "timestamp": datetime.utcnow().isoformat(),
             "agent_card": agent_card.to_dict(),
             "policy_decisions": {
                 "build_allowed": is_allowed
-            }
+            },
+            "linked_evidence_digest": linked_evidence_digest,
         }
         
         bundle = EvidenceBundle(evidence_data)
@@ -45,6 +50,7 @@ class ProvenanceEmitter:
         
         record = {
             "digest": evidence_hash,
+            "linked_evidence_digest": linked_evidence_digest,
             "bundle_data": evidence_data
         }
         

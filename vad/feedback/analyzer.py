@@ -1,4 +1,6 @@
-from typing import List, Dict, Any
+from typing import Any, List
+
+from vad.feedback.proposals import FeedbackProposal, ProposalType
 
 class Incident:
     def __init__(self, issue_type: str, severity: str, description: str):
@@ -43,3 +45,44 @@ class FeedbackAnalyzer:
                 proposals.append("Proposed Invariant: Adjust resource allocation to prevent SLO drift.")
 
         return proposals
+
+    def propose_release_updates(self, release_outcome: dict[str, Any]) -> list[FeedbackProposal]:
+        return proposals_from_release_outcome(release_outcome)
+
+
+def proposals_from_release_outcome(release_outcome: dict[str, Any]) -> list[FeedbackProposal]:
+    if release_outcome.get("decision") != "failed":
+        return []
+
+    error = str(release_outcome.get("error", ""))
+    lowered = error.lower()
+
+    if "missing telemetry" in lowered:
+        return [FeedbackProposal(
+            proposal_type=ProposalType.ADD_PROOF_OBLIGATION,
+            reason="Release failed because telemetry evidence was missing.",
+            payload={
+                "kind": "telemetry",
+                "description": "Prove release telemetry is integrated before promotion.",
+            },
+        )]
+
+    if "rollback triggered" in lowered:
+        metric = _extract_release_metric(error)
+        return [FeedbackProposal(
+            proposal_type=ProposalType.ADD_RELEASE_GATE,
+            reason="Rollback outcome should become an explicit release gate.",
+            payload={
+                "metric": metric,
+                "description": f"Gate release promotion on {metric} telemetry.",
+            },
+        )]
+
+    return []
+
+
+def _extract_release_metric(error: str) -> str:
+    parts = error.split("'")
+    if len(parts) >= 3 and parts[1].strip():
+        return parts[1]
+    return "release_health"

@@ -1,0 +1,13 @@
+{
+  "event": "route_decision",
+  "selected_model": "fake-provider/tier1-local",
+  "selected_tier": "tier1",
+  "estimated_tokens": 900,
+  "estimated_cost": 0.0,
+  "reason": "Offline fixture route selected for deterministic Phase 8 validation.",
+  "policy_decision": {
+    "allow": true,
+    "denials": [],
+    "requires_human": false
+  }
+}

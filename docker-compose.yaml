@@ -1,0 +1,22 @@
+services:
+  vad-ui:
+    build: .
+    command:
+      - python
+      - -m
+      - vad.server.serve
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - --db
+      - /tmp/vad-server/vad.sqlite3
+      - --ui-root
+      - /tmp/vad-ui
+      - --evidence-root
+      - /tmp/vad-evidence
+      - --seed-level3-demo
+    ports:
+      - "8080:8080"
+    environment:
+      VAD_LIVE_SERVICES: "disabled"

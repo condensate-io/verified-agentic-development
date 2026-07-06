@@ -1,4 +1,10 @@
 # VAD Maturity Model
+
+## Repository Status
+
+This repository currently implements a Level 2 reference slice plus an offline Level 3 demonstrator: structured EIPs, ask assessment, proof mapping, guarded execution, a bounded local loop, durable evidence, MEES/token governance, release gates, feedback proposals, MCP tools, local A2A policy checks, local swarm execution, fake-provider deployment, local signing, rollback feedback, and a Docker-served UI/API dashboard.
+
+Level 3 is implemented only as deterministic local fixture-backed behavior. It does not provide production distributed swarms, live cloud deployment automation, default live model-provider calls, or enterprise identity/approval infrastructure. Level 4 remains a target architecture; this repository is not an enterprise-hosted control plane.
 *From Assisted Coding → Verified Agentic Operating System*
 
 The adoption of agentic development is not binary. Enterprises evolve through structured maturity stages. Each stage represents a change in control surface, verification depth, interoperability, and governance posture.
@@ -86,6 +92,8 @@ The adoption of agentic development is not binary. Enterprises evolve through st
 
 ## Level 3 — Multi-Agent Verified Orchestration
 
+Status in this repository: local demonstrator implemented. `examples/level3-demo`, `vad swarm run --fixture`, `vad deploy demo`, `vad deploy failure-demo`, `vad ui serve --seed-level3-demo`, and `docker compose up vad-ui` demonstrate a fixture-backed swarm, fake provider route, fake deployment, signed attestation, rollback feedback, and dashboard inspection without live credentials or cloud services. Production distributed orchestration, synthesis across independent agent worktrees, and live provider fleet routing remain future work.
+
 ### Profile
 
 - Specialized agent swarms coordinated via protocol
@@ -116,6 +124,8 @@ The adoption of agentic development is not binary. Enterprises evolve through st
 ---
 
 ## Level 4 — Enterprise Control Plane (Verified Agentic OS)
+
+Status in this repository: directional. The reference implementation emits local evidence and policy decisions, but it is not an enterprise-hosted command center.
 
 ### Profile
 

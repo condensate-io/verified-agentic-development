@@ -1,0 +1,66 @@
+version: 1.0.0
+name: Level 3 Demo Status Summary
+risk_tier: medium
+autonomy_tier: bounded
+goal:
+  description: Add a deterministic status summary helper to the demo task service and prove it through local tests.
+  success_criteria:
+    - Status counts are deterministic.
+    - Empty task lists return zero counts.
+    - The fake provider route and fake deployment target remain offline-only.
+non_goals:
+  - Do not call live model providers.
+  - Do not deploy outside the fake deployment provider.
+scope_boundaries:
+  - examples/level3-demo/repo
+  - examples/level3-demo
+invariants:
+  security:
+    - No inline secrets are stored in fixture files.
+  performance:
+    - Summary generation is linear in task count.
+  functional:
+    - Unknown task states are counted under unknown.
+constraints:
+  security:
+    - Network access is not required for fixture validation.
+  privacy:
+    - Demo task data contains no personal data.
+  operational:
+    - Deployment is fake and targets staging only.
+proof_obligations:
+  - id: demo-po-unit
+    kind: unit
+    description: Unit tests prove summary counts for active, blocked, passed, and unknown task states.
+  - id: demo-po-provider
+    kind: policy
+    description: Provider routing uses an offline fake provider within the token and cost budget.
+  - id: demo-po-deploy
+    kind: release
+    description: Fake staging deployment includes approval, telemetry, and rollback policy references.
+tool_permissions:
+  allowed:
+    - pytest
+    - vad
+  denied:
+    - network
+    - live-provider
+memory_requirements:
+  - scope: project
+    purpose: Preserve demonstrator run recovery notes.
+    max_payload_size: 2048
+model_budget:
+  max_tokens: 12000
+  max_cost: 1.0
+  max_loop_depth: 3
+release_requirements:
+  required: true
+  strategy: staging-fake
+  gates:
+    - release_guardian_approval
+    - signed_evidence
+telemetry_requirements:
+  required: true
+  signals:
+    - fake_http_success_rate
+    - fake_error_budget_remaining

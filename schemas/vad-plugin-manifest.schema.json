@@ -1,0 +1,240 @@
+{
+  "$defs": {
+    "PluginCommand": {
+      "properties": {
+        "args": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Args",
+          "type": "array"
+        },
+        "env": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {},
+          "title": "Env",
+          "type": "object"
+        },
+        "executable": {
+          "maxLength": 240,
+          "minLength": 1,
+          "title": "Executable",
+          "type": "string"
+        }
+      },
+      "required": [
+        "executable"
+      ],
+      "title": "PluginCommand",
+      "type": "object"
+    },
+    "PluginConfigPath": {
+      "properties": {
+        "path": {
+          "maxLength": 300,
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "required": {
+          "default": true,
+          "title": "Required",
+          "type": "boolean"
+        },
+        "scope": {
+          "$ref": "#/$defs/PluginConfigScope"
+        }
+      },
+      "required": [
+        "scope",
+        "path"
+      ],
+      "title": "PluginConfigPath",
+      "type": "object"
+    },
+    "PluginConfigScope": {
+      "enum": [
+        "user",
+        "workspace",
+        "project"
+      ],
+      "title": "PluginConfigScope",
+      "type": "string"
+    },
+    "PluginPermission": {
+      "properties": {
+        "high_risk": {
+          "default": false,
+          "title": "High Risk",
+          "type": "boolean"
+        },
+        "name": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "reason": {
+          "maxLength": 300,
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "reason"
+      ],
+      "title": "PluginPermission",
+      "type": "object"
+    },
+    "PluginPrompt": {
+      "properties": {
+        "path": {
+          "maxLength": 300,
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "prompt_id": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Prompt Id",
+          "type": "string"
+        },
+        "role": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Role",
+          "type": "string"
+        }
+      },
+      "required": [
+        "prompt_id",
+        "role",
+        "path"
+      ],
+      "title": "PluginPrompt",
+      "type": "object"
+    },
+    "PluginTargetClient": {
+      "enum": [
+        "codex",
+        "claude_code",
+        "vscode",
+        "antigravity",
+        "windsurf",
+        "cursor",
+        "opencode",
+        "generic_mcp"
+      ],
+      "title": "PluginTargetClient",
+      "type": "string"
+    },
+    "PluginToolGrant": {
+      "properties": {
+        "approved_by_default": {
+          "default": false,
+          "title": "Approved By Default",
+          "type": "boolean"
+        },
+        "high_risk": {
+          "default": false,
+          "title": "High Risk",
+          "type": "boolean"
+        },
+        "name": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "role": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Role",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "role"
+      ],
+      "title": "PluginToolGrant",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "checksums": {
+      "additionalProperties": {
+        "pattern": "^[a-f0-9]{64}$",
+        "type": "string"
+      },
+      "minProperties": 1,
+      "title": "Checksums",
+      "type": "object"
+    },
+    "command": {
+      "$ref": "#/$defs/PluginCommand"
+    },
+    "config_paths": {
+      "items": {
+        "$ref": "#/$defs/PluginConfigPath"
+      },
+      "minItems": 1,
+      "title": "Config Paths",
+      "type": "array"
+    },
+    "permissions": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/PluginPermission"
+      },
+      "title": "Permissions",
+      "type": "array"
+    },
+    "plugin_id": {
+      "maxLength": 160,
+      "minLength": 1,
+      "title": "Plugin Id",
+      "type": "string"
+    },
+    "prompts": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/PluginPrompt"
+      },
+      "title": "Prompts",
+      "type": "array"
+    },
+    "target_client": {
+      "$ref": "#/$defs/PluginTargetClient"
+    },
+    "tools": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/PluginToolGrant"
+      },
+      "title": "Tools",
+      "type": "array"
+    },
+    "version": {
+      "pattern": "^\\d+\\.\\d+\\.\\d+([-.][A-Za-z0-9.]+)?$",
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "plugin_id",
+    "target_client",
+    "version",
+    "command",
+    "config_paths",
+    "checksums"
+  ],
+  "title": "VADPluginManifest",
+  "type": "object"
+}

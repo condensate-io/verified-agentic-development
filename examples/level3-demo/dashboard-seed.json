@@ -1,0 +1,123 @@
+{
+  "approvals": [
+    {
+      "approval_id": "level3-demo-approval",
+      "run_id": "level3-demo-success",
+      "actor": "release-guardian",
+      "action": "approve_release",
+      "created_at": "2026-07-01T00:10:00",
+      "decision": {
+        "allow": true,
+        "denials": [],
+        "requires_human": true
+      },
+      "evidence_digest": "level3-demo-evidence-digest"
+    }
+  ],
+  "activity": [
+    {
+      "activity_id": "level3-demo-claude-plan",
+      "run_id": "level3-demo-success",
+      "kind": "swarm",
+      "status": "active",
+      "client": "Claude Code",
+      "actor": "planner",
+      "role": "planner",
+      "summary": "Planner assigned repository patch tasks.",
+      "created_at": "2026-07-01T00:01:00",
+      "task_id": "plan",
+      "evidence_digest": "level3-demo-evidence-digest"
+    },
+    {
+      "activity_id": "level3-demo-vscode-test",
+      "run_id": "level3-demo-success",
+      "kind": "work_item",
+      "status": "passed",
+      "client": "VSCode",
+      "actor": "builder",
+      "role": "builder",
+      "summary": "Local repo tests passed.",
+      "created_at": "2026-07-01T00:02:00",
+      "task_id": "unit-tests",
+      "evidence_digest": "level3-demo-evidence-digest"
+    },
+    {
+      "activity_id": "level3-demo-codex-sign",
+      "run_id": "level3-demo-success",
+      "kind": "signing",
+      "status": "passed",
+      "client": "Codex",
+      "actor": "verifier",
+      "role": "verifier",
+      "summary": "Evidence signature verified.",
+      "created_at": "2026-07-01T00:03:00",
+      "task_id": "sign",
+      "evidence_digest": "level3-demo-evidence-digest"
+    },
+    {
+      "activity_id": "level3-demo-antigravity-deploy",
+      "run_id": "level3-demo-success",
+      "kind": "deployment",
+      "status": "needs_human",
+      "client": "Antigravity",
+      "actor": "release-guardian",
+      "role": "release_guardian",
+      "summary": "Fake staging deployment awaits approval.",
+      "created_at": "2026-07-01T00:04:00",
+      "task_id": "deploy",
+      "evidence_digest": "level3-demo-evidence-digest"
+    },
+    {
+      "activity_id": "level3-demo-cursor-review",
+      "run_id": "level3-demo-success",
+      "kind": "swarm",
+      "status": "passed",
+      "client": "Cursor",
+      "actor": "reviewer",
+      "role": "reviewer",
+      "summary": "Reviewer confirmed EIP scope boundaries.",
+      "created_at": "2026-07-01T00:05:00",
+      "task_id": "review",
+      "evidence_digest": "level3-demo-evidence-digest"
+    },
+    {
+      "activity_id": "level3-demo-windsurf-route",
+      "run_id": "level3-demo-success",
+      "kind": "provider",
+      "status": "passed",
+      "client": "Windsurf",
+      "actor": "router",
+      "role": "provider",
+      "summary": "Fake provider route stayed within budget.",
+      "created_at": "2026-07-01T00:06:00",
+      "task_id": "route",
+      "evidence_digest": "level3-demo-evidence-digest"
+    },
+    {
+      "activity_id": "level3-demo-opencode-attest",
+      "run_id": "level3-demo-success",
+      "kind": "signing",
+      "status": "passed",
+      "client": "OpenCode",
+      "actor": "attestor",
+      "role": "signer",
+      "summary": "Attestation metadata attached to the run.",
+      "created_at": "2026-07-01T00:07:00",
+      "task_id": "attest",
+      "evidence_digest": "level3-demo-evidence-digest"
+    },
+    {
+      "activity_id": "level3-demo-generic-mcp-replay",
+      "run_id": "level3-demo-success",
+      "kind": "work_item",
+      "status": "active",
+      "client": "Generic MCP/A2A",
+      "actor": "coordinator",
+      "role": "coordinator",
+      "summary": "Replay notes are available for recovery.",
+      "created_at": "2026-07-01T00:08:00",
+      "task_id": "replay",
+      "evidence_digest": "level3-demo-evidence-digest"
+    }
+  ]
+}

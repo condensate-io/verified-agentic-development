@@ -1,0 +1,1 @@
+Add a status summary helper to the demo task service, prove it with tests, route any model work through the fake provider, sign the evidence, and prepare a fake staging deployment with rollback telemetry. The dashboard must show activity from Claude Code, VSCode, Codex, Antigravity, Cursor, Windsurf, OpenCode, and a generic MCP/A2A-compatible client.

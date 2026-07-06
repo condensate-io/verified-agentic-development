@@ -43,3 +43,13 @@ def test_memory_redaction_coverage():
     assert "test@example.com" not in retrieved.content
     assert "1234-5678-9012-3456" not in retrieved.content
     assert "[REDACTED]" in retrieved.content
+
+def test_local_memory_store_persists_across_instances(tmp_path):
+    memory_file = tmp_path / "memory.json"
+    scope = MemoryScope.RETROSPECTIVE
+    entry = MemoryEntry(id="1", scope=scope, content="Durable learning")
+
+    LocalMemoryStore(file_path=str(memory_file)).save(entry)
+    restored = LocalMemoryStore(file_path=str(memory_file))
+
+    assert restored.retrieve("1", scope).content == "Durable learning"

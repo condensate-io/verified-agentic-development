@@ -8,13 +8,15 @@ In a control-system model, telemetry and verification outcomes must be fed back 
 
 ## Using `vad eip retro`
 
-After an EIP has completed its verification and deployment phases, run the retro command to synthesize learnings:
+After an EIP has completed its verification and deployment phases, run the retro command against an evidence bundle file:
 
 ```bash
-vad eip retro --eip my-feature/eip.yaml
+vad eip retro path/to/evidence-bundle.json
 ```
 
 This command will:
 1. Analyze test results, invariant breaches, and execution logs.
 2. Update the `MemoryScope.RETROSPECTIVE` storage.
-3. Suggest new constraints or invariant refinements for future EIPs.
+3. Print synthesized learnings for future EIPs.
+
+Structured proposal generation and durable retrospective memory are tracked in `implementation_tracker_2606.md`.

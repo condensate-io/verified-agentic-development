@@ -1,0 +1,23 @@
+target_id: level3-demo-staging
+environment: staging
+provider: fake
+region: local
+strategy: blue-green
+artifact_digest: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+endpoint: http://localhost:8080/demo
+secret_refs: []
+telemetry:
+  - name: fake_http_success_rate
+    query: fake.success_rate
+    minimum_health: 0.95
+    window_seconds: 300
+  - name: fake_error_budget_remaining
+    query: fake.error_budget_remaining
+    minimum_health: 0.9
+    window_seconds: 300
+rollback:
+  enabled: true
+  strategy: blue-green
+  trigger_metric: fake_http_success_rate
+  threshold: 0.95
+  max_wait_seconds: 600

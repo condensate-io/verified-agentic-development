@@ -46,6 +46,40 @@ def test_retro_analyzer_extracts_failures():
     
     content = json.loads(entries[0].content)
     assert len(content["failures"]) == 4
+    assert any(proposal["proposal_type"] == "restrict_tool" for proposal in result["proposals"])
+    assert any(proposal["proposal_type"] == "adjust_budget" for proposal in result["proposals"])
+
+def test_repeated_failure_creates_proof_and_invariant_proposals():
+    bundle = EvidenceBundle({"failures": ["retry timeout", "retry timeout"]})
+    store = LocalMemoryStore()
+    gateway = MemoryGateway(store, Redactor())
+    analyzer = RetroAnalyzer(gateway)
+
+    result = analyzer.analyze(bundle)
+    proposal_types = {proposal["proposal_type"] for proposal in result["proposals"]}
+
+    assert "add_proof_obligation" in proposal_types
+    assert "add_invariant" in proposal_types
+
+def test_policy_denial_creates_tool_restriction_proposal():
+    bundle = EvidenceBundle({"failures": ["Policy denied shell capability"]})
+    store = LocalMemoryStore()
+    gateway = MemoryGateway(store, Redactor())
+    analyzer = RetroAnalyzer(gateway)
+
+    result = analyzer.analyze(bundle)
+
+    assert result["proposals"][0]["proposal_type"] == "restrict_tool"
+
+def test_loop_exhaustion_creates_budget_proposal():
+    bundle = EvidenceBundle({"steps": [{"status": "failure", "loop_exhaustion": "Exhausted 5 loops"}]})
+    store = LocalMemoryStore()
+    gateway = MemoryGateway(store, Redactor())
+    analyzer = RetroAnalyzer(gateway)
+
+    result = analyzer.analyze(bundle)
+
+    assert result["proposals"][0]["proposal_type"] == "adjust_budget"
 
 def test_cli_retro_command(tmp_path):
     bundle_data = {

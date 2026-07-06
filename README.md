@@ -1,8 +1,20 @@
 # Verified Agentic Development (VAD): A Control-System Model for Enterprise Software
 
-> **v0.1 Reference Implementation**: This repository contains the v0.1 reference implementation of VAD, featuring executable machinery for the verification loop. This includes CLI tools for evaluating Executable Intent Packages (EIPs) through concentric loops, a retro stage (`vad eip retro`) for autonomous learning, and integrated testing (`pytest`).
+> **v0.1 Reference Implementation**: This repository contains the v0.1 reference implementation of VAD, including EIP validation and normalization, ask assessment, proof mapping, guarded verification, a bounded local orchestrator, typed evidence, MEES effort scoring, release gate evaluation, feedback proposals, MCP tools, and local A2A message checks.
 
-> **Environment**: The VAD implementation is entirely OS-agnostic (pure Python) and runs natively on Windows, macOS, or Linux. While Docker and WSL can be used as an *optional* isolated convenience environment, they are not strictly required. Note that `opa` (Open Policy Agent) is a system dependency that must be installed on your native host path if running without Docker.
+> **Environment**: Use the Dockerfile for isolated verification. Native execution requires Python dependencies and `opa` on the host path, but repository validation should use the documented Docker gate.
+
+## Implementation Status
+
+The current codebase is a Level 2 reference implementation with an offline Level 3 demonstrator. Implemented surfaces include:
+
+- `vad ask assess`, `vad eip init|validate|normalize|diff|retro`, `vad proof map`, `vad loop run`, `vad evidence inspect`, `vad effort score`, and `vad mcp run|install`;
+- typed EIP, proof-plan, run-evidence, MEES, token-budget, route, release, and feedback proposal models;
+- default-deny execution, model routing, memory access, MCP, and A2A policy boundaries;
+- release gate outcomes that can produce feedback proposals;
+- local swarm, signing, fake-provider deployment, rollback, hosted API/UI, and Docker-served dashboard demonstrators over `examples/level3-demo`.
+
+Implemented Level 3 behavior is local and deterministic. It uses fake providers, local HMAC signing, SQLite persistence, a static dashboard, and disposable Docker verification. It does not deploy to live cloud or production infrastructure, does not call live providers in default tests, and does not provide an enterprise-hosted Level 4 control plane. The OpenAI SDK adapter is optional and credential-gated; additional live providers remain planned unless explicitly documented as implemented.
 
 ## Executive Summary
 Enterprise software delivery is breaking under three pressures:
@@ -296,4 +308,3 @@ Verified Agentic Development integrates:
 
 The result is not more documentation.
 It is a system that makes correctness, safety, and accountability first-class citizens of delivery.
-

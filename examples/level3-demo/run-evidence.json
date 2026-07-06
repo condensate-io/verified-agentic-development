@@ -1,0 +1,90 @@
+{
+  "schema_version": "1.0.0",
+  "run_id": "level3-demo-success",
+  "created_at": "2026-07-01T00:00:00",
+  "eip": {
+    "path": "examples/level3-demo/eip.yaml",
+    "digest": "level3-demo-eip-digest"
+  },
+  "proof_plan": {
+    "path": "examples/level3-demo/proof-plan.yaml",
+    "digest": "level3-demo-proof-plan-digest"
+  },
+  "agents": {
+    "builder": "claude-code-builder",
+    "verifier": "codex-verifier"
+  },
+  "policy_decisions": [
+    {
+      "action": "approve_release",
+      "allow": true,
+      "actor": "release-guardian",
+      "requires_human": true
+    }
+  ],
+  "tool_calls": [
+    {
+      "tool": "pytest",
+      "client": "VSCode",
+      "status": "passed",
+      "command": "pytest examples/level3-demo/repo/tests"
+    }
+  ],
+  "model_routes": [
+    {
+      "event": "route_decision",
+      "selected_model": "fake-provider/tier1-local",
+      "selected_tier": "tier1",
+      "estimated_tokens": 900,
+      "estimated_cost": 0.0,
+      "reason": "Offline fixture route selected for deterministic Phase 8 validation."
+    }
+  ],
+  "memory_events": [
+    {
+      "scope": "project",
+      "client": "Generic MCP",
+      "summary": "Recorded replay notes for the local demonstrator."
+    }
+  ],
+  "verification": {
+    "passed": true,
+    "results": [
+      {
+        "obligation_id": "demo-po-unit",
+        "command": "pytest examples/level3-demo/repo/tests",
+        "status": "passed"
+      }
+    ]
+  },
+  "release": {
+    "evaluated": true,
+    "approval_ref": "level3-demo-approval",
+    "deployment_target": "examples/level3-demo/deployment-target.yaml",
+    "rollback_enabled": true
+  },
+  "feedback": {
+    "proposals": []
+  },
+  "effort": {
+    "effort_type": "feature",
+    "mees": 88,
+    "policy": "pass",
+    "changed_files": 5,
+    "line_delta": 64,
+    "new_dependencies": 0,
+    "complexity_delta": 1,
+    "maintainability_delta": 0
+  },
+  "tokens": {
+    "budget": 12000,
+    "estimated": 1100,
+    "used": 900,
+    "remaining": 11100,
+    "optimization_notes": [
+      "Used fixture artifacts instead of live provider calls.",
+      "Kept dashboard seed records compact and replayable."
+    ]
+  },
+  "final_decision": "passed"
+}
