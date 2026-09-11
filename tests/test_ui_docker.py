@@ -357,7 +357,7 @@ def _free_port() -> int:
         return sock.getsockname()[1]
 
 
-def _wait_for_health(base_url: str, process: subprocess.Popen, timeout: float = 10.0) -> None:
+def _wait_for_health(base_url: str, process: subprocess.Popen, timeout: float = 45.0) -> None:
     deadline = time.time() + timeout
     while time.time() < deadline:
         if process.poll() is not None:

@@ -1,0 +1,82 @@
+# JSON Schema for PostMortem artifact in YAML format
+$schema: "https://json-schema.org/draft/2020-12/schema"
+title: PostMortem
+type: object
+required:
+  - id
+  - incident_id
+  - title
+  - timestamp
+  - severity
+  - timeline
+  - root_cause
+  - contributing_factors
+  - invariant_violations
+  - proposed_eip_clauses
+properties:
+  id:
+    type: string
+    pattern: "^PM-[0-9a-zA-Z_-]+$"
+  incident_id:
+    type: string
+  title:
+    type: string
+  timestamp:
+    type: string
+    format: date-time
+  severity:
+    type: string
+    enum: ["SEV-1", "SEV-2", "SEV-3", "SEV-4"]
+  timeline:
+    type: array
+    items:
+      type: object
+      required:
+        - timestamp
+        - event
+        - actor
+      properties:
+        timestamp:
+          type: string
+        event:
+          type: string
+        actor:
+          type: string
+  contributing_factors:
+    type: array
+    items:
+      type: string
+  invariant_violations:
+    type: array
+    items:
+      type: string
+  root_cause:
+    type: string
+  proposed_eip_clauses:
+    type: array
+    items:
+      type: object
+      required:
+        - kind
+        - description
+      properties:
+        kind:
+          type: string
+          enum: ["security_invariant", "functional_invariant", "constraint", "proof_obligation"]
+        description:
+          type: string
+  alert_thresholds:
+    type: array
+    items:
+      type: object
+      required:
+        - metric
+        - threshold
+        - action
+      properties:
+        metric:
+          type: string
+        threshold:
+          type: string
+        action:
+          type: string

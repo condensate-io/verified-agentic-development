@@ -160,3 +160,8 @@ desktop.ini
 .project
 .pydevproject
 .settings/
+
+# Planning artifacts — orchestration meta-docs, not committed to repo
+planning_artifacts/
+evidence/
+proposals/

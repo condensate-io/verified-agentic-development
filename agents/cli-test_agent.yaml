@@ -1,0 +1,13 @@
+name: cli-test-agent
+role: Specialist Engineer for cli-test
+description: Simple test component
+target_repo: cli-test
+git_url: https://git.internal/cli-test.git
+routing_signals:
+- cli-test
+- python
+allowed_tools:
+- read
+- pytest
+- git_status
+- edit
