@@ -25,6 +25,10 @@ from vad.server.api.clients import ClientRegistryService
 from vad.server.api.events import ControlPlaneEventService
 from vad.server.api.leases import TaskLeaseService
 from vad.server.api.work_items import WorkItemSchedulerService, WorkItemService
+from vad.connectors.registry import get_connector_registry
+from vad.connectors.webhook_receiver import WebhookReceiver
+from vad.server.api.connectors_admin import ConnectorsAdminService
+from vad.server.api.webhooks import WebhookIngressService
 from vad.server.db.store import ServerStore
 
 
@@ -53,11 +57,19 @@ class EvidenceStore:
 
 
 class VADApi:
-    def __init__(self, evidence_root: Path, db_path: Path | None = None):
+    def __init__(self, evidence_root: Path, db_path: Path | None = None, webhook_receiver: WebhookReceiver | None = None):
         self.store = EvidenceStore(evidence_root)
         self.db = ServerStore(db_path) if db_path else None
+        self.webhook_receiver = webhook_receiver or WebhookReceiver()
 
-    def handle(self, method: str, raw_path: str, body: dict[str, Any] | None = None) -> tuple[int, dict[str, Any]]:
+    def handle(
+        self,
+        method: str,
+        raw_path: str,
+        body: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+        raw_body: bytes | None = None,
+    ) -> tuple[int, dict[str, Any]]:
         parsed = urlparse(raw_path)
         path = parsed.path.rstrip("/") or "/"
         if method == "GET" and path == "/health":
@@ -134,7 +146,47 @@ class VADApi:
             return self._client_heartbeat_response(path, body or {})
         if method == "DELETE" and path.startswith("/clients/"):
             return self._client_unregister_response(path)
+        if method == "POST" and (path.startswith("/webhooks/") or path.startswith("/api/v1/webhooks/")):
+            return self._webhook_ingress_response(path, body=body, headers=headers or {}, raw_body=raw_body)
+        if path in ("/connectors", "/api/v1/connectors") and method == "GET":
+            return self._connectors_admin_service().list_connectors()
+        if path in ("/connectors", "/api/v1/connectors") and method == "POST":
+            return self._connectors_admin_service().register_connector(body or {})
+        if (path.startswith("/connectors/") or path.startswith("/api/v1/connectors/")):
+            return self._connector_action_response(path, method, body or {})
         return 404, {"error": "not_found"}
+
+    def _connectors_admin_service(self) -> ConnectorsAdminService:
+        return ConnectorsAdminService(db=self.db, registry=get_connector_registry())
+
+    def _connector_action_response(self, path: str, method: str, body: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+        clean_path = path[len("/api/v1"):] if path.startswith("/api/v1") else path
+        parts = [unquote(p) for p in clean_path.split("/") if p]
+        if len(parts) < 2:
+            return 404, {"error": "not_found"}
+        name = parts[1]
+        service = self._connectors_admin_service()
+        if len(parts) == 2 and method == "DELETE":
+            return service.unregister_connector(name)
+        if len(parts) == 3 and parts[2] == "health" and method == "GET":
+            return service.check_health(name)
+        if len(parts) == 3 and parts[2] == "sync" and method == "POST":
+            return service.trigger_sync(name)
+        return 404, {"error": "not_found"}
+
+    def _webhook_ingress_response(
+        self,
+        path: str,
+        body: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+        raw_body: bytes | None = None,
+    ) -> tuple[int, dict[str, Any]]:
+        if self.db is None:
+            return 503, {"error": "service_unavailable", "message": "database not configured"}
+        provider = path.rstrip("/").split("/")[-1]
+        raw_bytes = raw_body if raw_body is not None else (json.dumps(body).encode("utf-8") if body else b"")
+        service = WebhookIngressService(self.db, receiver=self.webhook_receiver)
+        return service.handle_webhook(provider, headers or {}, raw_bytes)
 
     def _mcp_response(self, body: dict[str, Any]) -> tuple[int, dict[str, Any]]:
         response = handle_json_rpc_request(body)
@@ -1088,12 +1140,17 @@ def make_handler(api: VADApi, ui_root: Path | None = None):
             if self.path.startswith(("/events", "/mcp", "/work-items", "/diff-proposals", "/operator-intents")) and not self._is_local_request():
                 self._send(403, {"error": "local_only_route"})
                 return
+            length = int(self.headers.get("Content-Length", "0"))
+            raw_bytes = self.rfile.read(length) if length > 0 else b""
             try:
-                body = self._read_json_body()
+                body = json.loads(raw_bytes.decode("utf-8")) if raw_bytes else {}
+                if not isinstance(body, dict):
+                    body = {"payload": body}
             except json.JSONDecodeError as exc:
                 self._send(400, {"error": "invalid_json", "detail": str(exc)})
                 return
-            self._send(*api.handle("POST", self.path, body=body))
+            headers_dict = {k: v for k, v in self.headers.items()}
+            self._send(*api.handle("POST", self.path, body=body, headers=headers_dict, raw_body=raw_bytes))
 
         def do_DELETE(self):
             self._send(*api.handle("DELETE", self.path))
@@ -1111,7 +1168,7 @@ def make_handler(api: VADApi, ui_root: Path | None = None):
 
         def _send_static_if_available(self) -> bool:
             parsed = urlparse(self.path)
-            if parsed.path.startswith(("/runs", "/health", "/ready", "/actions", "/dashboard", "/plugins", "/events", "/clients", "/leases", "/work-items", "/diff-proposals", "/operator-intents", "/run-task-states", "/mcp")):
+            if parsed.path.startswith(("/runs", "/health", "/ready", "/actions", "/dashboard", "/plugins", "/events", "/clients", "/leases", "/work-items", "/diff-proposals", "/operator-intents", "/run-task-states", "/mcp", "/webhooks", "/api/v1/webhooks")):
                 return False
             relative = "index.html" if parsed.path in {"", "/"} else unquote(parsed.path.lstrip("/"))
             candidate = (resolved_ui_root / relative).resolve()

@@ -421,6 +421,70 @@ _GATEWAY_TOOLS: tuple[GatewayToolDefinition, ...] = (
         required=["state"],
         required_role="observer",
     ),
+    _tool(
+        name="work_intake_discover",
+        description="Discovers available or queued work items matching agent role and capability requirements.",
+        properties={
+            "role": {"type": "string", "default": "developer"},
+            "capability": {"type": "string"},
+            "limit": {"type": "integer", "default": 10},
+        },
+        required_role="developer",
+        risk=GatewayToolRisk.LOW,
+    ),
+    _tool(
+        name="work_intake_claim",
+        description="Acquires an execution lease on a queued work item for the agent.",
+        properties={
+            "work_item_id": {"type": "string"},
+            "client_id": {"type": "string"},
+            "lease_duration_seconds": {"type": "integer", "default": 600},
+        },
+        required=["work_item_id", "client_id"],
+        required_role="developer",
+        risk=GatewayToolRisk.MEDIUM,
+    ),
+    _tool(
+        name="work_intake_report_progress",
+        description="Reports interim progress, milestone status, or completion percentage on a claimed work item.",
+        properties={
+            "work_item_id": {"type": "string"},
+            "lease_id": {"type": "string"},
+            "message": {"type": "string"},
+            "percent_complete": {"type": "integer"},
+        },
+        required=["work_item_id", "lease_id", "message"],
+        required_role="developer",
+        risk=GatewayToolRisk.LOW,
+    ),
+    _tool(
+        name="work_intake_submit_proof",
+        description="Submits verification proof digest and test summary, transitioning work item to verifying state.",
+        properties={
+            "work_item_id": {"type": "string"},
+            "lease_id": {"type": "string"},
+            "evidence_digest": {"type": "string"},
+            "test_summary": {"type": "string"},
+            "commit_sha": {"type": "string"},
+        },
+        required=["work_item_id", "lease_id", "evidence_digest", "test_summary"],
+        required_role="developer",
+        risk=GatewayToolRisk.HIGH,
+        high_risk=True,
+    ),
+    _tool(
+        name="work_intake_escalate",
+        description="Escalates a blocker or requests human intervention on a claimed work item.",
+        properties={
+            "work_item_id": {"type": "string"},
+            "lease_id": {"type": "string"},
+            "reason": {"type": "string"},
+        },
+        required=["work_item_id", "lease_id", "reason"],
+        required_role="developer",
+        risk=GatewayToolRisk.HIGH,
+        high_risk=True,
+    ),
 )
 
 

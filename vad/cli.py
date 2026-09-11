@@ -1274,6 +1274,90 @@ def mcp_install_command(args):
     print(json.dumps({"mcpServers": {"vad": cursor_snippet}}, indent=2))
 
 
+def mcp_work_intake_command(args):
+    import os
+    import json
+    import sys
+    from pathlib import Path
+
+    db_path = str(Path(args.db).resolve())
+    os.environ["VAD_SERVER_DB"] = db_path
+    if hasattr(args, "client_id") and args.client_id:
+        os.environ["VAD_CLIENT_ID"] = args.client_id
+    if hasattr(args, "role") and args.role:
+        os.environ["VAD_CLIENT_ROLE"] = args.role
+
+    claude_snippet = {
+        "command": sys.executable,
+        "args": ["-m", "vad.cli", "mcp", "work-intake", "--db", args.db]
+    }
+    cursor_snippet = {
+        "type": "stdio",
+        "command": sys.executable,
+        "args": ["-m", "vad.cli", "mcp", "work-intake", "--db", args.db],
+        "enabled": True
+    }
+
+    if getattr(args, "print_config", None):
+        if args.print_config == "claude":
+            print(json.dumps({"mcpServers": {"vad-work-intake": claude_snippet}}, indent=2))
+        elif args.print_config == "cursor":
+            print(json.dumps({"vad-work-intake": cursor_snippet}, indent=2))
+        return
+
+    if getattr(args, "install", None):
+        client = args.install
+        if client == "claude":
+            config_dir = Path.home() / ".claudecode"
+            config_file = config_dir / "config.json"
+            config_dir.mkdir(parents=True, exist_ok=True)
+            config_data = {}
+            if config_file.exists():
+                with open(config_file, "r") as f:
+                    try:
+                        config_data = json.load(f)
+                    except Exception:
+                        config_data = {}
+            if "mcpServers" not in config_data:
+                config_data["mcpServers"] = {}
+            config_data["mcpServers"]["vad-work-intake"] = claude_snippet
+            with open(config_file, "w") as f:
+                json.dump(config_data, f, indent=2)
+            print(f"[SUCCESS] Configured Claude Code work-intake MCP extension at {config_file}")
+            return
+        elif client == "cursor":
+            if sys.platform == "win32":
+                appdata = Path(os.environ.get("APPDATA", "~/AppData/Roaming")).expanduser()
+                cursor_dir = appdata / "Cursor"
+            elif sys.platform == "darwin":
+                cursor_dir = Path.home() / "Library" / "Application Support" / "Cursor"
+            else:
+                cursor_dir = Path.home() / ".config" / "Cursor"
+            config_file = cursor_dir / "User" / "globalStorage" / "meta.mcp" / "config.json"
+            config_file.parent.mkdir(parents=True, exist_ok=True)
+            config_data = {}
+            if config_file.exists():
+                with open(config_file, "r") as f:
+                    try:
+                        config_data = json.load(f)
+                    except Exception:
+                        config_data = {}
+            if "mcpServers" not in config_data:
+                config_data["mcpServers"] = {}
+            config_data["mcpServers"]["vad-work-intake"] = cursor_snippet
+            with open(config_file, "w") as f:
+                json.dump(config_data, f, indent=2)
+            print(f"[SUCCESS] Configured Cursor work-intake MCP extension at {config_file}")
+            return
+
+    if getattr(args, "test_start", False):
+        print(json.dumps({"status": "ready", "command": "work-intake", "db": db_path}))
+        return
+
+    from vad.adapters.mcp import serve
+    serve()
+
+
 def plugins_install_command(args):
     from vad.control_plane.plugins import VADPluginManifest, create_plugin_installer_dry_run
 
@@ -1450,6 +1534,14 @@ def main():
     
     install_parser = mcp_subparsers.add_parser("install", help="Install/configure VAD CLI extension")
     install_parser.add_argument("client", nargs="?", choices=["claude", "cursor"], help="Target client for automatic installation")
+
+    work_intake_parser = mcp_subparsers.add_parser("work-intake", help="Run the Governed Work Intake MCP server for Claude Code and Cursor")
+    work_intake_parser.add_argument("--db", default=".vad/control-plane/vad.sqlite3", help="SQLite database path")
+    work_intake_parser.add_argument("--client-id", default="claude_code", help="Client identifier for connecting agent")
+    work_intake_parser.add_argument("--role", default="developer", help="Role for connecting agent")
+    work_intake_parser.add_argument("--install", choices=["claude", "cursor"], help="Install work-intake MCP configuration for specified client")
+    work_intake_parser.add_argument("--print-config", choices=["claude", "cursor"], help="Print MCP configuration snippet for specified client")
+    work_intake_parser.add_argument("--test-start", action="store_true", help="Start and exit immediately (for testing/verification)")
 
     # Plugin installer commands
     plugins_parser = subparsers.add_parser("plugins")
@@ -1716,6 +1808,8 @@ def main():
             mcp_run_command(args)
         elif args.mcp_command == "install":
             mcp_install_command(args)
+        elif args.mcp_command == "work-intake":
+            mcp_work_intake_command(args)
         else:
             mcp_parser.print_help()
     elif args.command == "ui":

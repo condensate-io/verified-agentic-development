@@ -34,6 +34,13 @@ from vad.control_plane.mcp_gateway import (
     filter_gateway_tools,
     mcp_tool_definitions,
 )
+from vad.adapters.mcp_work_intake import (
+    handle_work_intake_claim,
+    handle_work_intake_discover,
+    handle_work_intake_escalate,
+    handle_work_intake_report_progress,
+    handle_work_intake_submit_proof,
+)
 
 class MCPAdapter:
     def __init__(self):
@@ -55,6 +62,11 @@ class MCPAdapter:
             "provider_inventory": handle_provider_inventory,
             "provider_test": handle_provider_test,
             "swarm_status": handle_swarm_status,
+            "work_intake_discover": handle_work_intake_discover,
+            "work_intake_claim": handle_work_intake_claim,
+            "work_intake_report_progress": handle_work_intake_report_progress,
+            "work_intake_submit_proof": handle_work_intake_submit_proof,
+            "work_intake_escalate": handle_work_intake_escalate,
         }
         self.connected = True
         return self
@@ -461,6 +473,11 @@ TOOL_HANDLERS = {
     "provider_inventory": handle_provider_inventory,
     "provider_test": handle_provider_test,
     "swarm_status": handle_swarm_status,
+    "work_intake_discover": handle_work_intake_discover,
+    "work_intake_claim": handle_work_intake_claim,
+    "work_intake_report_progress": handle_work_intake_report_progress,
+    "work_intake_submit_proof": handle_work_intake_submit_proof,
+    "work_intake_escalate": handle_work_intake_escalate,
 }
 
 def serve():
