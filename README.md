@@ -1,310 +1,204 @@
-# Verified Agentic Development (VAD): A Control-System Model for Enterprise Software
+# Verified Agentic Development (VAD): Enterprise Control-Plane & Governance Platform
 
-> **v0.1 Reference Implementation**: This repository contains the v0.1 reference implementation of VAD, including EIP validation and normalization, ask assessment, proof mapping, guarded verification, a bounded local orchestrator, typed evidence, MEES effort scoring, release gate evaluation, feedback proposals, MCP tools, and local A2A message checks.
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Python: 3.11+](https://img.shields.io/badge/Python-3.11%2B-brightgreen.svg)](pyproject.toml)
+[![Docker: vad-runner](https://img.shields.io/badge/Verification-Docker_Isolated-orange.svg)](Dockerfile)
+[![Level: Enterprise L4](https://img.shields.io/badge/Maturity-Level_4_Autonomous_Governed-purple.svg)](maturity_model.md)
 
-> **Environment**: Use the Dockerfile for isolated verification. Native execution requires Python dependencies and `opa` on the host path, but repository validation should use the documented Docker gate.
+> **Verified Agentic Development (VAD)** is an enterprise control-system model and governance platform for AI-assisted and autonomous software engineering. VAD transforms software delivery from unverified, ad-hoc code generation into a closed-loop control system: **Intent is formalized, proof obligations are machine-executable, agents operate within bounded sandbox loops, and releases require cryptographic attestation.**
 
-## Implementation Status
+---
 
-The current codebase is a Level 2 reference implementation with an offline Level 3 demonstrator. Implemented surfaces include:
+## 1. Current Implementation Status
 
-- `vad ask assess`, `vad eip init|validate|normalize|diff|retro`, `vad proof map`, `vad loop run`, `vad evidence inspect`, `vad effort score`, and `vad mcp run|install`;
-- typed EIP, proof-plan, run-evidence, MEES, token-budget, route, release, and feedback proposal models;
-- default-deny execution, model routing, memory access, MCP, and A2A policy boundaries;
-- release gate outcomes that can produce feedback proposals;
-- local swarm, signing, fake-provider deployment, rollback, hosted API/UI, and Docker-served dashboard demonstrators over `examples/level3-demo`.
+VAD has evolved from an initial concept into a full **Level 4 Enterprise Governed Platform** with automated work intake and agent orchestration.
 
-Implemented Level 3 behavior is local and deterministic. It uses fake providers, local HMAC signing, SQLite persistence, a static dashboard, and disposable Docker verification. It does not deploy to live cloud or production infrastructure, does not call live providers in default tests, and does not provide an enterprise-hosted Level 4 control plane. The OpenAI SDK adapter is optional and credential-gated; additional live providers remain planned unless explicitly documented as implemented.
+### Core Capabilities
 
-## Executive Summary
-Enterprise software delivery is breaking under three pressures:
+- **Universal Work Intake Connectors (`vad/connectors/`):**
+  - Bidirectional integrations with **GitHub Issues & PRs** (HMAC-SHA256, Checks API), **GitLab Issues & MRs** (token auth, MR discussions), **Atlassian Jira** (Cloud & Server, ADF-to-Markdown sanitization, workflow transitions), and **Generic Webhooks** (Linear, Asana, Monday, CI/CD).
+  - Ingress Webhook Receiver with cryptographic signature validation, delivery UUID replay guard, and deduplication.
+- **Governed MCP Surface for AI Agents (`vad/adapters/`, `vad/control_plane/`):**
+  - Standardized Model Context Protocol (MCP) server: `vad mcp work-intake` with automated one-command installation for **Claude Code** and **Cursor**.
+  - Governed agent tool surface: `work_intake_discover`, `work_intake_claim` (task leases), `work_intake_report_progress`, `work_intake_submit_proof` (evidence bundles), and `work_intake_escalate`.
+- **Inbound & Outbound Governance Gates (`vad/policy/`):**
+  - **Definition of Ready (DoR) Gate:** Automated ingress evaluation checking prompt injection safety, title/description completeness, and acceptance criteria.
+  - **Two-Person Release Guardian Gate:** Strictly enforces that closing a remote ticket or merging a PR requires an SHA-256 evidence bundle digest and **two distinct actors** (builder agent + human release guardian).
+  - **Bidirectional Sync Worker:** Background queue worker handling outbound status transitions, comments, and attestations with retry backoff and governance hold protection.
+- **Autonomous Orchestrator (`vad/orchestrator/`):**
+  - Directed Acyclic Graph (DAG) task scheduling, dependency resolution, admission control, parallel agent dispatch, heartbeat monitoring, and staged commit approval.
+- **Multi-Harness Agent Runners (`vad/runners/`):**
+  - Native execution adapters for Claude Code, Cursor, GitHub Copilot, Codex, Aider, and Python SDK.
+- **Cross-Harness Review & DSSE Attestation (`vad/review/`, `vad/signing/`):**
+  - Cryptographic DSSE signatures, independent verifier attestation, and rebase stability guards.
+- **Declarative Governance (`vad/policy/`):**
+  - Configurable Quality Gates (MEES effort score, cyclomatic complexity, line deltas, dependency manifest checks), maturity progression gate (L1–L5), and scope boundary enforcement.
+- **Enterprise Audit & Telemetry (`vad/audit/`):**
+  - Append-only SQLite audit ledger, centralized streaming hooks, SIEM export, and token/cost budgeting.
+- **Operator Terminal UI (`vad/tui/`):**
+  - Interactive Textual TUI dashboard for real-time decision inspection, dependency graph navigation, live telemetry, and staged release gates.
+- **SkillGuard Zero-Trust Registry (`vad/integrity/`):**
+  - Cryptographic SHA-256 hash verification across all custom skills, prompt templates, and lifecycle hooks.
+- **Semantic Memory & Learning Ledger (`vad/memory/`):**
+  - Persistent skill ledger, learning gaps miner, and optional native integration with [Condensate Core](https://github.com/condensate-io/core).
 
-System complexity (distributed, data-heavy, AI-integrated systems)
-Regulatory scrutiny (security, privacy, auditability)
-Acceleration pressure (AI-assisted development, faster release cycles)
+---
 
-Traditional methodologies—waterfall, Agile, DevOps—optimize workflow, not assurance. Even Spec-Driven Development (SDD) and Test-Driven Development (TDD), while powerful, are insufficient when applied independently in modern AI-augmented environments.
+## 2. Architecture
 
-This whitepaper proposes a hybrid approach:
-
-Verified Agentic Development (VAD)
-A control-system model where intent is formalized, proof obligations are executable, and agents operate within bounded verification loops under governance constraints.
-
-> See [the VAD maturity model](maturity_model.md) for a structured progression from assisted coding to a verified agentic OS.
-
-The core shift:
-From “code as the primary artifact” → to intent + proof + governance as the primary artifacts.
-
-1. Problem Statement
-Enterprise software today suffers from four systemic weaknesses:
-
-1.1 Spec Drift
-Specifications are written once, then decay. They are rarely executable and often disconnected from reality.
-
-1.2 Test Myopia
-Tests validate known cases but fail to enforce invariants, cross-boundary contracts, and operational constraints.
-
-1.3 Governance Lag
-Compliance and audit artifacts are assembled retroactively, manually, and inconsistently.
-
-1.4 AI Acceleration Risk
-AI-assisted development increases throughput but amplifies:
-- inconsistency
-- hallucinated assumptions
-- silent policy violations
-- security regressions
-
-The industry needs a system that scales assurance at the same rate as acceleration.
-
-## 2. Foundational Principles
-
-Principle 1: Intent is Primary
-Every change must begin with explicit, structured intent:
-- Goals
-- Non-goals
-- Invariants
-- Constraints
-- Risk posture
-
-Principle 2: Proof is Mandatory
-Nothing is “done” unless its proof obligations are satisfied:
-- Functional Behavior
-- Property-based invariants
-- Security Boundaries
-- Performance Budgets
-- Operational Readiness
-
-Principle 3: Separation of Duties (Human + Agent)
-Builder, verifier, and policy enforcement roles must be distinct - whether human or agent.
-
-Principle 4: Governance is Continuous
-Audit artifacts are generated during development, not assembled after.
-
-Principle 5: Delivery is a Feedback-Control System
-Production telemetry feeds back into intent refinement and proof strengthening.
-
-## 3. The Core Artifact: The Executable Intent Package (EIP)
-The new atomic unit of enterprise delivery is not a PR or ticket.
-It is the Executable Intent Package (EIP).
-An EIP contains:
-
-1. Intent Definition
-- Goal
-- Non-goals
-- Stakeholders
-- Scope Boundaries
-
-2. Domain Contracts
-- Inputs / Outputs
-- External Dependencies
-- Backward Compatibility Requirements
-
-3. Invariants
-- Conditions that must always hold
-- Data Consistency Guarantees
-- Authorization Guarantees
-
-4. Failure Modes
-- Degradation Behavior
-- Retry/Rollback conditions
-- circuit-breaking logic
-
-5. Security and Privacy Constraints
-- Data boundaries
-- Access policies
-- Compliance Implications
-
-6. Performance & Cost Budgets
-- Latency SLO
-- Throughput targets
-- Resource Ceilings
-
-7. Proof Obligations
-- Acceptance tests
-- Property tests
-- Contract tests
-- Security tests
-- Load / Performance tests
-
-8. Operational Hooks
-- Feature flags **
-- Observability Requirements
-- Alert Thresholds
-- Rollback process / playbook
-
-  An EIP is complete only when its proof obligations are executable
-
-## 4. The Verified Agentic Loop
-VAD replaces linear workflows with a verification loop:
-
-```mermaid
-flowchart LR
-    Intent[Intent Formalization]
-    Proof[Proof Planning]
-    Build[Agentic Construction]
-    Verify[Adversarial Verification]
-    Release[Controlled Release]
-    Telemetry[Telemetry Feedback]
-
-    Intent --> Proof --> Build --> Verify --> Release --> Telemetry --> Intent
+```
+External Ticketing & CI/CD       VAD Control Plane & Ingress Layer        AI Agent MCP Surface
+──────────────────────────       ─────────────────────────────────        ────────────────────
+┌────────────────────────┐       ┌───────────────────────────────┐        ┌──────────────────┐
+│  GitHub Issues & PRs   │──────▶│ Webhook Ingress & Auth Gate   │        │   Claude Code    │
+│  (HMAC-SHA256, Checks) │◀──────│ (HMAC, Replay Guard, Ingress) │        │   Claude Desktop │
+└────────────────────────┘       └──────────────┬────────────────┘        │   Cursor Agent   │
+┌────────────────────────┐                      │                         └────────┬─────────┘
+│  GitLab Issues & MRs   │──────────────────────┤                                  │ (JSON-RPC 2.0 /
+│  (Token Auth, Notes)   │◀─────────────────────┤                                  │  stdio / SSE)
+└────────────────────────┘                      ▼                                  ▼
+┌────────────────────────┐       ┌───────────────────────────────┐        ┌──────────────────┐
+│  Atlassian Jira        │──────▶│ Universal Work Intake Router  │◀──────▶│ Governed MCP     │
+│  (Cloud/Server, ADF)   │◀──────│ • Definition of Ready (DoR)   │ Bi-dir │ Gateway Surface  │
+└────────────────────────┘       │ • Capability & Role Matching  │ Sync   │ • Lease Claim    │
+┌────────────────────────┐       │ • Token Budget & Risk Router  │ Worker │ • Tool Auth      │
+│  Generic Webhooks      │──────▶└──────────────┬────────────────┘        │ • Proof Submiss. │
+│  (Linear, Asana, CI/CD)│                      ▼                         │ • 2-Person Gate  │
+└────────────────────────┘       ┌───────────────────────────────┐        └──────────────────┘
+                                 │ VAD Autonomous Orchestrator   │
+                                 │ • DAG Dependency Engine       │
+                                 │ • Disposable Docker Runners   │
+                                 │ • Staged Operator Approval    │
+                                 └──────────────┬────────────────┘
+                                                ▼
+                                 ┌───────────────────────────────┐
+                                 │ Operator TUI & Dashboard      │
+                                 │ (Real-time Decisions, Graph,  │
+                                 │  Audit Ledger & Analytics)    │
+                                 └───────────────────────────────┘
 ```
 
-Step 1: Intent Formalization
-Ambiguity needs to be surfaced and resolved before implementation begins.
-Outputs: 
-- Structured Intent
-- Defined invariants
-- identified risk zones
+---
 
-Step 2: Proof Planning
-Each invariant and constraint becomes a proof obligation - it has to be testable. 
-No implementation begins without a verification plan
+## 3. Quickstart Guide
 
-Step 3: Agentic Construction
-Builder Agents:
-- Propose architecture
-- Generate implementation
-- Iterate until proof obligations pass
+### Prerequisites
+- Python 3.11+
+- Docker (or Docker Desktop via WSL 2 on Windows)
+- Git
 
-Human intervention is required at architectural or risk boundaries
+### Installation
+```bash
+# Clone the repository
+git clone https://github.com/condensate-io/verified-agentic-development.git
+cd verified-agentic-development
 
-Step 4: Adversarial Verification
-Independent verifier agents: 
-- Attempt to break invariants
-- Fuzz inputs
-- Inject malformed data
-- Simulate adversarial scenarios
-- validate security posture
+# Create and activate virtual environment
+python -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
-Separation of duties will prevent self-approval bias. 
+# Install in development mode
+pip install -e .
+```
 
-Step 5: Controlled Release
-Deployment is progressive: 
-- Feature Flags become critical - especially when development is iterative and on-going - think Kaizen
-- Canary Rollouts
-- Automated health checks
+### 1. Connecting Claude Code & Cursor to Governed Work Intake
+```bash
+# Configure Claude Code automatically
+vad mcp work-intake --install claude
 
-Rollback procedures are tested before release. 
+# Configure Cursor automatically
+vad mcp work-intake --install cursor
 
-Step 6: Telemetry Feedback
-Production events update: 
-- Risk registers
-- Invariants
-- Proof obligations
-Incidents become strengthened constraints.
+# Run the MCP stdio server manually
+vad mcp work-intake --db .vad/control-plane/vad.sqlite3
+```
 
-(Optional) Step 7: Making use of Telemetry Feedback
-Optimizer Agent:
-- assesses telemetry and identifies areas of improvement
-- Feeds back into feature requests and guides product teams
-- Remains constrained by proof obligations and invariants
+### 2. Running the Local Control Plane & Webhook Server
+```bash
+# Start the local Level 4 control plane server
+vad control-plane serve --port 8080 --db .vad/control-plane/vad.sqlite3
 
-  ## 5. The Control-System Model
-  VAD treats enterprise delivery as a closed-loop control system.
+# The webhook ingress endpoint is live at:
+# POST http://localhost:8080/api/v1/webhooks/github
+# POST http://localhost:8080/api/v1/webhooks/gitlab
+# POST http://localhost:8080/api/v1/webhooks/jira
+# POST http://localhost:8080/api/v1/webhooks/generic
+```
 
-| Component     | Software Equivalent       |
-| ---           | ---                       |
-| Desired state | Intent                    |
-| Controller    | Verification loop         |
-| Actuator      | Builder agent             |
-| Sensor        | Telemetry & tests         |
-| Disturbance   | Real-world variability     |
-| Feedback      | Incident & performance data |
+### 3. Launching the Operator TUI
+```bash
+# Launch the real-time Operator terminal interface
+vad tui
+```
 
-This transforms development from: 
- *Output-docussed ("ship features")*
- to
- *Stability-focused("maintain verified system state")*
+### 4. Running the Verification Suite in Docker
+All verification must execute inside the isolated Docker runner:
+```bash
+# Build the runner container
+docker build -t vad-runner:3.11 .
 
-## 6. Organizational Model
-VAD does not require radical restructuring, but it clarifies responsibilities:
-**Intent Steward**
-Maintains domain integrity and language consistency
-**Verification owner**
-Ensures proof obligations are complete and meaningful
-**Release Guardian**
-Owns safe rollout and operational readiness
-**Policy Authority**
-Owns risk acceptance and compliance posture
-**Agent Orchestrator**
-Manages tooling, guardrails and evaluation metrics. 
+# Run the full test suite
+docker run --rm -v $(pwd):/workspace -w /workspace -e PYTHONPATH=/workspace vad-runner:3.11 pytest -v
+```
 
-Roles may be human, automated or hybrid / shared. 
-These roles map onto many existing roles in Enterprises today. 
+---
 
-## 7. Governance by Evidence
-Traditional Governance: 
- - Manual Review
- - Ad-hoc documentation
- - Spreadsheet audits
-VAD Governance:
-- Spec Clause --> Test --> Commit --> Deployment Traceability
-- Automated audit bundles per release
-- Risk exceptions explicitly logged and versioned
-Evidence is generated continuouslu
+## 4. Foundational Principles
 
-## 8. Risk Management in an AI-Augmented Enterprise
-AI-assisted development introduces new risks:
-- Latent logic errors
-- overconfidence in generated code
-- inconsistent adherence to standards
-- hidden security flaws
-- token cost over-runs
-VAD mitigates this by
-- Mandatory proof plans before code
-- Independent verification agents
-- Policy-as-code type enforcement
-- Hard release gates tied to objective metrics
+1. **Intent is Primary:** Every code modification originates with explicit, structured intent—formalized in an Executable Intent Package (EIP) containing goals, non-goals, invariants, constraints, and risk classification.
+2. **Proof is Mandatory:** Nothing is complete until executable proof obligations pass (unit, property, fuzz, and security boundary tests).
+3. **Separation of Duties:** Builder agents, verifier agents, and human release guardians remain strictly isolated. A single actor cannot approve its own work.
+4. **Continuous Governance:** Cryptographic audit trails, DSSE signatures, and evidence bundles are generated continuously during development—never assembled retroactively.
+5. **Closed-Loop Control:** Production telemetry, test outcomes, and incident post-mortems feed back into tightened invariants and updated proof plans.
 
-Acceleration is bounded by assurance
+---
 
-## 9. Economic Model
-Contrary to fears of “process bloat,” VAD reduces systemic waste by:
-- Decreasing rework
-- Reducing production incidents
-- Minimizing emergency compliance efforts
-- Preventing security breaches
-- Shortening Audit cycles
+## 5. The Control-System Model
 
-Cost shifts left - from firefighting, making sense of 'vibed' code, and wilful token spend to structured assurance
+VAD models software delivery as a closed-loop engineering control system:
 
-The system optimizes for: 
-- Lower incident recovery cost
-- Higher change confidence
-- Faster mean time to verified release
+| Control System Element | Software Engineering Equivalent |
+|---|---|
+| **Desired State** | Structured Intent (EIP) & Invariants |
+| **Controller** | Bounded Verification Loop & Quality Gates |
+| **Actuator** | Builder Agent (Claude Code, Cursor, Codex) |
+| **Sensor** | Automated Tests & Disposable Docker Execution |
+| **Disturbance** | Codebase drift, unexpected inputs, flaky dependencies |
+| **Feedback** | Telemetry, incident post-mortems, and retrospective learning |
 
-## 10. What the Enterprise of 2030 looks like from this lens
-In a mature VAD organization
-- Features begin as structured intent.
-- Agents draft implementations under constraint.
-- Proof obligations are machine-executable.
-- Governance artifacts are auto-generated.
-- Releases are progressive and observable
-- Incidents strengthen invariants
-- The system evolves to become harder to destabilize over time.
+---
 
-Enterprise software evolves from: 
-_A constantly patched artifact_
+## 6. Documentation Suite
 
-to:
+Comprehensive guides and operational manuals are available under [`docs/`](docs/):
 
-_A continuously verified operating system of business intent_
+### Guides & Manuals
+- [Quickstart Guide](docs/quickstart.md) — 5-minute setup and guided walkthrough.
+- [Autonomous Orchestrator Guide](docs/how-to/autonomous-orchestrator.md) — Multi-agent parallel task scheduling.
+- [Work Intake & Governed MCP Guide](docs/how-to/work-intake-and-mcp.md) — Production connector and MCP setup.
+- [Declarative Governance Guide](docs/how-to/declarative-governance.md) — Quality gates, policies, and invariants.
+- [Cross-Harness Review & DSSE Attestation](docs/how-to/cross-harness-review.md) — Cryptographic signing and review.
+- [Incident Response & Post-Mortem](docs/how-to/incident-response.md) — Automated incident resolution loops.
+- [Claude Code Plugin Guide](docs/how-to/claude-code-plugin.md) — 7 lifecycle hooks and slash commands.
+- [Condensate Core Integration Guide](docs/condensate-integration.md) — Semantic memory engine integration.
 
-## 11. Integration with Condensate Core
-While VAD provides the governance loop and execution framework, `condensate-io/core` serves as the semantic memory storage engine. VAD's `MemoryGateway` and `MemoryScope.RETROSPECTIVE` can be backed by Condensate Core's "Events" and "Learnings". Using the `CondensateClient` Python SDK, VAD can persist evidence bundles, evaluation outcomes, and project memory context directly to the core API.
+### User Journeys
+- [Developer Pair Programming Journey](docs/user-journeys/developer-workflow.md) — Daily workflow with governed AI.
+- [Work Intake & Remote Ticket Resolution](docs/user-journeys/work-intake-connectors.md) — Jira/GitHub Issue to verified release.
+- [Autonomous Swarm Orchestration](docs/user-journeys/autonomous-orchestration.md) — Scaling parallel agents.
+- [Release Guardian & 2-Person Release Gates](docs/user-journeys/release-guardian-tui.md) — Production release sign-off.
+- [Enterprise Compliance & SIEM Audit](docs/user-journeys/enterprise-compliance.md) — Continuous compliance reporting.
 
-For a detailed example, see the [Condensate Integration Guide](docs/condensate-integration.md).
+---
 
-## 12. Conclusion
-The next era of enterprise development will not be defined by faster coding.
-It will be defined by faster verification under control.
+## 7. Integration with Condensate Core
 
-Verified Agentic Development integrates:
-- Spec-driven clarity
-- Test-driven rigor
-- Agentic acceleration
-- Governance automation
-- Operational feedback
+While VAD provides the governance loop, execution control plane, and connector surface, [`condensate-io/core`](https://github.com/condensate-io/core) serves as the semantic memory and knowledge storage engine. VAD's `MemoryGateway` persists evidence bundles, evaluation outcomes, and retrospective learnings directly into Condensate Core.
 
-The result is not more documentation.
-It is a system that makes correctness, safety, and accountability first-class citizens of delivery.
+See the [Condensate Core Integration Guide](docs/condensate-integration.md) for full details.
+
+---
+
+## 8. License
+
+Verified Agentic Development is open-source software licensed under the [Apache License, Version 2.0](LICENSE).
