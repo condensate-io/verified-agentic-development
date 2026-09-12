@@ -1,21 +1,69 @@
-MIT License
+﻿Business Source License 1.1
+https://mariadb.com/bsl11/
 
-Copyright (c) 2026
+Parameters
+Licensor:                 Condensate Systems Pty Ltd (Condensate IO)
+Licensed Work:            Verified Agentic Development (VAD)
+                          The Licensed Work includes any code, binaries, or other
+                          materials distributed under this Agreement.
+Additional Use Grant:     You may use the Licensed Work free of charge solely for
+                          personal, educational, evaluation, academic, non-profit,
+                          and non-commercial purposes, subject to the Mandatory
+                          Attribution Condition below.
+                          
+                          ANY USE FOR COMMERCIAL PURPOSES (including but not limited
+                          to: production deployments within a business or enterprise,
+                          commercial hosting, fee-charging services, revenue-generating
+                          activities, or embedding into proprietary commercial products)
+                          IS STRICTLY PROHIBITED WITHOUT A SEPARATE COMMERCIAL LICENSE.
+                          
+                          To obtain a commercial license, contact:
+                          support@condensate.io
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+Mandatory Attribution    Any copy, modification, redistribution, or deployment of the
+Condition:                Licensed Work (or portions thereof) must prominently display
+                          the following attribution notice in all documentation, user
+                          interfaces, CLI banners, and machine-readable metadata:
+                          
+                          "Powered by Condensate Verified Agentic Development (VAD)
+                           Copyright (c) 2024-2026 Condensate Systems Pty Ltd"
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+Change Date:              2030-01-01
+Change License:           Apache License, Version 2.0
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+----------------------------------------------------------------------
+
+Terms
+
+The Licensor hereby grants you the right to copy, modify, create derivative works,
+redistribute, and make non-commercial use of the Licensed Work. The foregoing license
+is granted subject to the terms and conditions of this Agreement (including the
+Additional Use Grant, Mandatory Attribution Condition, and Change Date specified above).
+
+1. Commercial License Requirement.
+Any use of the Licensed Work for Commercial Purposes requires a valid, executed
+Commercial License from the Licensor. If you do not hold a valid Commercial License,
+you are strictly limited to the non-commercial activities permitted by the Additional
+Use Grant.
+
+2. Mandatory Attribution.
+You must retain all copyright and attribution notices provided by the Licensor. Any
+derivative works, forks, redistributions, or deployments must prominently display the
+Mandatory Attribution Condition specified in the Parameters above.
+
+3. Change to Open Source License.
+Effective on the Change Date specified above, the Licensor hereby grants you rights
+under the terms of the Change License specified above.
+
+4. Trademarks.
+This License does not grant permission to use the trade names, trademarks, service marks,
+or product names of the Licensor, except as required for reasonable and customary use in
+describing the origin of the Work and displaying the Mandatory Attribution Condition.
+
+5. Disclaimer of Warranty.
+THE LICENSED WORK IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR
+A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE LICENSOR BE LIABLE
+FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE LICENSED WORK OR THE USE OR
+OTHER DEALINGS IN THE LICENSED WORK.

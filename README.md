@@ -1,6 +1,7 @@
 # Verified Agentic Development (VAD): Enterprise Control-Plane & Governance Platform
 
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![License: BSL 1.1](https://img.shields.io/badge/License-BSL_1.1-red.svg)](LICENSE)
+[![Commercial: Request License](https://img.shields.io/badge/Commercial-Requires_License-orange.svg)](mailto:support@condensate.io)
 [![Python: 3.11+](https://img.shields.io/badge/Python-3.11%2B-brightgreen.svg)](pyproject.toml)
 [![Docker: vad-runner](https://img.shields.io/badge/Verification-Docker_Isolated-orange.svg)](Dockerfile)
 [![Level: Enterprise L4](https://img.shields.io/badge/Maturity-Level_4_Autonomous_Governed-purple.svg)](maturity_model.md)
@@ -199,6 +200,22 @@ See the [Condensate Core Integration Guide](docs/condensate-integration.md) for 
 
 ---
 
-## 8. License
+## 8. License & Commercial Use
 
-Verified Agentic Development is open-source software licensed under the [Apache License, Version 2.0](LICENSE).
+Verified Agentic Development (VAD) is licensed under the **Business Source License 1.1 (BSL 1.1)**. See [`LICENSE`](LICENSE) for complete terms.
+
+### Non-Commercial & Evaluation Use
+You are free to use, modify, and inspect VAD for personal projects, academic research, evaluation, testing, and non-commercial open-source contributions free of charge, subject to the **Mandatory Attribution Condition**.
+
+### Mandatory Attribution Notice
+Any copy, fork, derivative work, or deployment of VAD must retain and prominently display the following notice in user interfaces, documentation, and CLI/API banners:
+
+> **Powered by Condensate Verified Agentic Development (VAD)**  
+> Copyright (c) 2024–2026 Condensate Systems Pty Ltd
+
+### Commercial Licensing
+**Any use of VAD for commercial purposes** (including but not limited to: internal production engineering pipelines within a business/enterprise, commercial SaaS hosting, fee-charging services, or embedding into proprietary commercial platforms) **is strictly prohibited without a separate Commercial License.**
+
+To acquire a commercial license or discuss enterprise pilot deployments:
+- 📧 **Email:** [support@condensate.io](mailto:support@condensate.io)
+- 🌐 **Website:** [condensate.io](https://condensate.io)

@@ -1381,8 +1381,26 @@ def plugins_install_command(args):
         sys.exit(1)
     print("="*50 + "\n")
 
+def print_attribution_banner():
+    banner = (
+        "Powered by Condensate Verified Agentic Development (VAD)\n"
+        "Copyright (c) 2024-2026 Condensate Systems Pty Ltd\n"
+        "Licensed under Business Source License 1.1 (BSL-1.1). Non-commercial use only.\n"
+        "Commercial licensing & enterprise support: support@condensate.io"
+    )
+    print(banner, file=sys.stderr)
+
 def main():
-    parser = argparse.ArgumentParser(prog="vad")
+    parser = argparse.ArgumentParser(
+        prog="vad",
+        description="Verified Agentic Development (VAD) CLI\n\nPowered by Condensate Verified Agentic Development (VAD)\nCopyright (c) 2024-2026 Condensate Systems Pty Ltd\nLicensed under BSL 1.1 (Non-commercial). Commercial use requires a separate license: support@condensate.io",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version="%(prog)s 0.1.0 (BSL-1.1) - Powered by Condensate VAD (support@condensate.io)"
+    )
     subparsers = parser.add_subparsers(dest="command")
     
     # EIP commands

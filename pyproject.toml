@@ -6,7 +6,9 @@ build-backend = "setuptools.build_meta"
 name = "verified-agentic-development"
 version = "0.1.0"
 description = "Verified Agentic Development framework"
-authors = [{name = "Antigravity", email = "antigravity@example.com"}]
+readme = "README.md"
+license = {text = "BSL-1.1"}
+authors = [{name = "Condensate Systems Pty Ltd", email = "support@condensate.io"}]
 dependencies = [
     "pydantic>=2.0.0",
     "pyyaml>=6.0.0",
