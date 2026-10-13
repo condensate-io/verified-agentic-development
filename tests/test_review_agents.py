@@ -56,3 +56,58 @@ def test_launch_review_separation_of_duties_guard():
             builder_harness="claude",
             diff_content="pass",
         )
+
+
+def test_select_review_depth_from_mees():
+    from vad.plugins.claude_code.review_agents import select_review_depth_from_mees, ReviewDepth
+
+    depth, agents = select_review_depth_from_mees(85)
+    assert depth == ReviewDepth.SOLO
+    assert len(agents) == 1
+    assert agents[0] == ReviewAgentType.CROSS_HARNESS
+
+    depth, agents = select_review_depth_from_mees(62)
+    assert depth == ReviewDepth.DOMAIN
+    assert len(agents) == 2
+    assert ReviewAgentType.DOMAIN in agents
+
+    depth, agents = select_review_depth_from_mees(40)
+    assert depth == ReviewDepth.ADVERSARIAL
+    assert len(agents) == 3
+    assert ReviewAgentType.ADVERSARIAL in agents
+
+
+def test_agent_card_lifecycle_templates():
+    from vad.agents.card import AgentCard, AgentCapabilities
+
+    card = AgentCard(
+        name="LifecycleVerifier",
+        description="Comprehensive verifier agent",
+        role="adversarial_verifier",
+        capabilities=AgentCapabilities(tools=["pytest", "opa"], model_tier="tier2", memory_scope="session"),
+        builder="alice",
+        approver="bob",
+        invariants=["INV-01: Zero secret leakage", "INV-02: Separation of duties"],
+        proof_obligations=["PO-01: Unit tests passing"],
+    )
+
+    md = card.to_markdown()
+    assert "# Agent Card: LifecycleVerifier" in md
+    assert "INV-01: Zero secret leakage" in md
+    assert "PO-01: Unit tests passing" in md
+
+    # EIP 11 sections
+    eip_md = AgentCard.render_eip_template(title="Test EIP")
+    for section_num in range(1, 12):
+        assert f"## {section_num}." in eip_md
+
+    # Verdict template
+    verdict_md = AgentCard.render_verdict_template()
+    assert "Critical Findings" in verdict_md
+    assert "Invariant Verification Checklist" in verdict_md
+
+    # Post-mortem template
+    pm_md = AgentCard.render_post_mortem_template()
+    assert "VAD Cycle Feedback" in pm_md
+    assert "New Invariants" in pm_md
+    assert "New Proof Obligations" in pm_md

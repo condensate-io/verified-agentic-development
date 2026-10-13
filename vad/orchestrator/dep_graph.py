@@ -10,6 +10,8 @@ class TaskStatus(str, Enum):
     READY = "ready"
     LOCKED = "locked"
     STAGED = "staged"
+    PUSHING = "pushing"
+    MR_CREATED = "mr_created"
     DONE = "done"
     FAILED = "failed"
 
@@ -119,13 +121,40 @@ class DependencyGraph:
         task.status = TaskStatus.STAGED
         return True
 
-    def complete(self, task_id: str) -> bool:
+    def report_pushing(self, task_id: str, actor_role: str = "agent") -> bool:
+        if self._is_agent_role(actor_role):
+            raise PermissionError("Autonomous agents are prohibited from self-reporting pushing status.")
         task = self._tasks.get(task_id)
-        if not task or task.status not in (TaskStatus.LOCKED, TaskStatus.STAGED):
+        if not task:
+            return False
+        task.status = TaskStatus.PUSHING
+        return True
+
+    def report_mr_created(self, task_id: str, actor_role: str = "agent") -> bool:
+        if self._is_agent_role(actor_role):
+            raise PermissionError("Autonomous agents are prohibited from self-reporting mr_created status.")
+        task = self._tasks.get(task_id)
+        if not task:
+            return False
+        task.status = TaskStatus.MR_CREATED
+        return True
+
+    def complete(self, task_id: str, actor_role: str = "operator") -> bool:
+        if self._is_agent_role(actor_role):
+            raise PermissionError("Autonomous agents are prohibited from self-reporting done status.")
+        task = self._tasks.get(task_id)
+        if not task or task.status not in (TaskStatus.LOCKED, TaskStatus.STAGED, TaskStatus.PUSHING, TaskStatus.MR_CREATED):
             return False
         task.status = TaskStatus.DONE
         task.completed_at = datetime.now(timezone.utc)
         return True
+
+    @staticmethod
+    def _is_agent_role(role: Optional[str]) -> bool:
+        if not role:
+            return False
+        r = role.lower().strip()
+        return r in ("agent", "builder", "subagent", "runner", "ai", "llm", "claude-code", "copilot")
 
     def fail(self, task_id: str, reason: str) -> bool:
         task = self._tasks.get(task_id)

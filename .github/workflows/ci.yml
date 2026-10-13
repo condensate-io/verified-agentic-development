@@ -31,6 +31,9 @@ jobs:
     - name: Run tests
       run: pytest tests/
 
+    - name: Skill-Guard Registry Integrity Audit
+      run: bash vad/integrity/ci_verify_registry.sh skills/registry.json
+
     - name: Emit Provenance Evidence
       run: |
         # In a real pipeline, we'd run a build script that calls ProvenanceEmitter

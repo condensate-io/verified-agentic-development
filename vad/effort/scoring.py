@@ -183,6 +183,30 @@ def policy_for_score(score: int) -> str:
     return "pass"
 
 
+def review_depth_for_mees(score: int) -> str:
+    """Determines review depth tier from MEES:
+    - >= 70: solo review
+    - 50-69: adds a domain agent
+    - < 50: adds a domain agent plus the adversarial verifier
+    """
+    if score >= 70:
+        return "solo"
+    elif score >= 50:
+        return "domain"
+    else:
+        return "adversarial"
+
+
+def required_reviewers_for_mees(score: int) -> list[str]:
+    """Returns required reviewer agent types based on MEES score."""
+    if score >= 70:
+        return ["solo"]
+    elif score >= 50:
+        return ["solo", "domain"]
+    else:
+        return ["solo", "domain", "adversarial"]
+
+
 def _parse_numstat(output: str) -> tuple[int, int]:
     insertions = 0
     deletions = 0
@@ -213,3 +237,76 @@ def _is_dependency_manifest(path: str) -> bool:
         "go.mod",
         "go.sum",
     }
+
+
+class MeesBudget(BaseModel):
+    max_changed_files: int = 10
+    max_complexity_increase: int = 5
+    allow_new_dependencies: bool = False
+
+
+class MeesEvaluationResult(BaseModel):
+    allow: bool
+    warn: bool
+    deny_reasons: list[str] = Field(default_factory=list)
+
+
+def evaluate_mees_policy(input_data: dict) -> MeesEvaluationResult:
+    """Evaluates input data against vad.minimal_effort Rego policy logic.
+    Matches rules declared in policies/mees.rego:
+    - Pass: mees >= 70, changed_files <= budget.max_changed_files, complexity_delta <= budget.max_complexity_increase
+    - Warn: 50 <= mees < 70 OR changed_files in (budget.max_changed_files, budget.max_changed_files + 3]
+    - Deny: mees < 50, changed_files > budget.max_changed_files + 3, complexity_delta > budget + 2, new_deps > 0
+    """
+    mees = input_data.get("mees", 0)
+    changed_files = input_data.get("changed_files", 0)
+    complexity_delta = input_data.get("complexity_delta", 0)
+    new_deps = input_data.get("new_dependencies", 0)
+
+    budget_raw = input_data.get("budget", {})
+    if isinstance(budget_raw, dict):
+        budget = MeesBudget(**budget_raw)
+    elif isinstance(budget_raw, MeesBudget):
+        budget = budget_raw
+    else:
+        budget = MeesBudget()
+
+    # Pass: MEES >= 70 and within budget
+    allow = (
+        mees >= 70
+        and changed_files <= budget.max_changed_files
+        and complexity_delta <= budget.max_complexity_increase
+    )
+
+    # Warn: MEES 50-69 or slightly over budget
+    warn = (
+        (50 <= mees < 70)
+        or (budget.max_changed_files < changed_files <= budget.max_changed_files + 3)
+    )
+
+    # Deny reasons
+    deny_reasons: list[str] = []
+    if mees < 50:
+        deny_reasons.append(f"MEES score {mees} is below minimum threshold (50)")
+
+    if changed_files > budget.max_changed_files + 3:
+        deny_reasons.append(
+            f"Changed {changed_files} files exceeds budget ({budget.max_changed_files}) + tolerance (3)"
+        )
+
+    if complexity_delta > budget.max_complexity_increase + 2:
+        deny_reasons.append(
+            f"Complexity increase {complexity_delta} exceeds budget ({budget.max_complexity_increase}) + tolerance (2)"
+        )
+
+    if new_deps > 0 and not budget.allow_new_dependencies:
+        deny_reasons.append(
+            f"Added {new_deps} new dependencies but budget disallows new deps"
+        )
+
+    return MeesEvaluationResult(
+        allow=allow,
+        warn=warn,
+        deny_reasons=deny_reasons,
+    )
+

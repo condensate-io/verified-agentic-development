@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SkillGuardVerdict",
+  "description": "Verdict and evaluation report for governed skills, agents, commands, and hooks.",
+  "type": "object",
+  "properties": {
+    "artifact_path": {
+      "type": "string",
+      "description": "Relative POSIX path to the evaluated artifact."
+    },
+    "artifact_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "description": "SHA-256 digest of the artifact content at review time."
+    },
+    "category": {
+      "type": "string",
+      "enum": ["skills", "agents", "commands", "hooks"],
+      "description": "Governed artifact classification."
+    },
+    "verdict": {
+      "type": "string",
+      "enum": ["ALLOW", "REJECT", "CONDITIONAL", "BOOTSTRAP"],
+      "description": "Formal governance verdict. ALLOW permits execution, REJECT permanently blocks, CONDITIONAL requires satisfies_conditions, and BOOTSTRAP is temporary unreviewed baseline."
+    },
+    "report": {
+      "type": "string",
+      "minLength": 10,
+      "description": "Detailed evaluation report documenting permissions, blast radius, safety checks, and findings."
+    },
+    "risk_score": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 100.0,
+      "description": "Computed risk score from 0.0 (safest) to 100.0 (highest risk)."
+    },
+    "conditions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Mandatory runtime constraints or environmental conditions required if verdict is CONDITIONAL."
+    },
+    "reviewed_by": {
+      "type": "string",
+      "description": "Identifier of the reviewer agent or human authority."
+    },
+    "reviewed_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "UTC timestamp of the review event."
+    }
+  },
+  "required": [
+    "artifact_path",
+    "artifact_sha256",
+    "category",
+    "verdict",
+    "report",
+    "risk_score",
+    "conditions",
+    "reviewed_by",
+    "reviewed_at"
+  ],
+  "additionalProperties": false
+}

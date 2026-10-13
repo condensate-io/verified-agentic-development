@@ -93,6 +93,15 @@ class VADMCPServer:
         ]
 
     def call_tool(self, name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        if "confirm_push" in name.lower():
+            return {
+                "isError": True,
+                "content": [{
+                    "type": "text",
+                    "text": "Security policy violation: confirm_push is strictly prohibited as an MCP tool and can only be executed via the authenticated Human Operator UI."
+                }]
+            }
+
         handlers = {
             "vad_assess": self._tool_assess,
             "vad_proof_map": self._tool_proof_map,

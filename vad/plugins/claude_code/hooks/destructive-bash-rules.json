@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Data-driven rules for detecting destructive shell commands in VAD pre_tool_use hooks.",
+  "deny": [
+    {
+      "id": "deny-root-deletion",
+      "pattern": "rm\\s+-[a-zA-Z]*r[a-zA-Z]*f?\\s+/(\\s|$)",
+      "description": "Recursive force removal of system root filesystem"
+    },
+    {
+      "id": "deny-root-deletion-reverse",
+      "pattern": "rm\\s+-[a-zA-Z]*f[a-zA-Z]*r?\\s+/(\\s|$)",
+      "description": "Recursive force removal of system root filesystem"
+    },
+    {
+      "id": "deny-format-fs",
+      "pattern": "mkfs(\\.[a-zA-Z0-9]+)?\\s+",
+      "description": "Direct filesystem formatting instruction"
+    },
+    {
+      "id": "deny-raw-disk-write",
+      "pattern": "dd\\s+.*if=.*of=/dev/(sd|hd|nvme|vd)",
+      "description": "Raw low-level write to block device"
+    },
+    {
+      "id": "deny-fork-bomb",
+      "pattern": ":\\(\\)\\s*\\{\\s*:\\|:&\\s*\\};:",
+      "description": "Classic shell fork bomb"
+    },
+    {
+      "id": "deny-root-chmod-world",
+      "pattern": "chmod\\s+-[a-zA-Z]*R\\s+777\\s+/",
+      "description": "Recursive world-writable chmod on root"
+    },
+    {
+      "id": "deny-force-push-main",
+      "pattern": "git\\s+push\\s+.*--force.*(main|master)",
+      "description": "Destructive force push to protected main/master branch"
+    },
+    {
+      "id": "deny-device-redirection",
+      "pattern": ">\\s*/dev/sd[a-z]",
+      "description": "Direct stdout redirection to raw drive device"
+    }
+  ],
+  "ask": [
+    {
+      "id": "ask-git-reset-hard",
+      "pattern": "git\\s+reset\\s+--hard",
+      "description": "Discards uncommitted working tree and staging changes"
+    },
+    {
+      "id": "ask-git-clean-force",
+      "pattern": "git\\s+clean\\s+-[a-zA-Z]*f",
+      "description": "Removes untracked files irreversibly"
+    },
+    {
+      "id": "ask-recursive-rm",
+      "pattern": "rm\\s+-[a-zA-Z]*r",
+      "description": "Recursive directory removal"
+    },
+    {
+      "id": "ask-kill-9",
+      "pattern": "kill\\s+-9",
+      "description": "Unconditional process termination"
+    },
+    {
+      "id": "ask-pkill",
+      "pattern": "pkill\\s+",
+      "description": "Process termination by name pattern"
+    },
+    {
+      "id": "ask-service-stop",
+      "pattern": "systemctl\\s+(stop|restart|disable)",
+      "description": "Host service lifecycle alteration"
+    },
+    {
+      "id": "ask-shutdown",
+      "pattern": "shutdown(\\s|$)",
+      "description": "System halt or shutdown sequence"
+    },
+    {
+      "id": "ask-reboot",
+      "pattern": "reboot(\\s|$)",
+      "description": "System reboot sequence"
+    }
+  ]
+}

@@ -81,6 +81,7 @@ class VADCommandHandler:
             "proof-map": self.handle_proof_map,
             "dor-check": self.handle_dor_check,
             "review": self.handle_review,
+            "verify": self.handle_verify,
             "evidence-inspect": self.handle_evidence_inspect,
             "parallel-dispatch": self.handle_parallel_dispatch,
             "onboard-repo": self.handle_onboard_repo,
@@ -153,13 +154,61 @@ class VADCommandHandler:
             data={"status": res.status.value, "reason": res.reason},
         )
 
+    def handle_verify(self, args: List[str]) -> CommandResult:
+        from vad.verify.runner import CostOrderedLadderRunner
+
+        # Optional MEES arg
+        mees = None
+        for arg in args:
+            if arg.isdigit():
+                mees = int(arg)
+            elif arg.startswith("--mees="):
+                mees = int(arg.split("=")[1])
+
+        runner = CostOrderedLadderRunner(cwd=str(self.workspace_root))
+        receipt = runner.run_ladder(mees_score=mees)
+
+        status_str = "success" if receipt.passed else "error"
+        summary = (
+            f"Verification ladder passed. Stamped receipt SHA: {receipt.receipt_sha[:12]}"
+            if receipt.passed
+            else f"Verification ladder failed: {receipt.first_failure}"
+        )
+
+        return CommandResult(
+            command="/vad verify",
+            status=status_str,
+            message=summary,
+            data=receipt.model_dump(),
+        )
+
     def handle_review(self, args: List[str]) -> CommandResult:
-        target_harness = args[0] if args else "copilot"
+        from vad.plugins.claude_code.review_agents import select_review_depth_from_mees
+
+        target_harness = "copilot"
+        mees = 75  # default pass tier
+
+        for arg in args:
+            if arg.isdigit():
+                mees = int(arg)
+            elif arg.startswith("--mees="):
+                mees = int(arg.split("=")[1])
+            elif not arg.startswith("-"):
+                target_harness = arg
+
+        depth, required_agent_types = select_review_depth_from_mees(mees)
+        reviewers = [f"{at.value}-{target_harness}" for at in required_agent_types]
+
         return CommandResult(
             command="/vad review",
             status="success",
-            message=f"Initiated cross-harness review routed to '{target_harness}'.",
-            data={"target_harness": target_harness, "reviewer": f"{target_harness}-reviewer"},
+            message=f"Initiated cross-harness review (depth={depth.value}, MEES={mees}) routed to {reviewers}.",
+            data={
+                "target_harness": target_harness,
+                "mees": mees,
+                "review_depth": depth.value,
+                "reviewers": reviewers,
+            },
         )
 
     def handle_evidence_inspect(self, args: List[str]) -> CommandResult:

@@ -21,7 +21,7 @@ from vad.control_plane.work_items import WorkItem, WorkItemStatus
 from vad.repo.diff_workflow import DiffApplyRecord, DiffProposal
 
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 
 class ApprovalEvent(BaseModel):
@@ -88,6 +88,17 @@ class TerminalStreamRecord(BaseModel):
     evidence_digest: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
 
 
+class RunRecord(BaseModel):
+    run_id: str
+    ticket_id: str | None = None
+    repo: str
+    kind: str = "feature"  # feature | bugfix | investigation
+    status: str = "active"  # active | staged | done | failed | cancelled
+    rca_approved: bool = False
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+
 class ServerStore:
     def __init__(self, db_path: Path):
         self.db_path = db_path
@@ -128,6 +139,10 @@ class ServerStore:
                 current = 9
             if current < 10:
                 self._migrate_010(conn)
+                current = 10
+            if current < 11:
+                self._migrate_011(conn)
+                current = 11
             conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
     def save_run_evidence(self, evidence: RunEvidence) -> StoredRunEvidence:
@@ -1346,3 +1361,132 @@ class ServerStore:
                 ON control_plane_events(client_id, sequence);
             """
         )
+
+    def _migrate_011(self, conn: sqlite3.Connection) -> None:
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS runs (
+                run_id TEXT PRIMARY KEY,
+                ticket_id TEXT,
+                repo TEXT NOT NULL,
+                kind TEXT NOT NULL DEFAULT 'feature',
+                status TEXT NOT NULL,
+                rca_approved INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                payload_json TEXT NOT NULL
+            );
+
+            -- Partial unique index: only one live run allowed per ticket
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_one_live_run_per_ticket
+                ON runs(ticket_id)
+                WHERE ticket_id IS NOT NULL AND status NOT IN ('done', 'failed', 'cancelled');
+
+            -- Partial unique index: only one live run allowed per repo
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_one_live_run_per_repo
+                ON runs(repo)
+                WHERE status NOT IN ('done', 'failed', 'cancelled');
+            """
+        )
+
+    def create_run(self, run: RunRecord) -> RunRecord:
+        self.migrate()
+        payload = json.dumps(run.model_dump(mode="json"), sort_keys=True)
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO runs(
+                    run_id, ticket_id, repo, kind, status, rca_approved,
+                    created_at, updated_at, payload_json
+                )
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    run.run_id,
+                    run.ticket_id,
+                    run.repo,
+                    run.kind,
+                    run.status,
+                    1 if run.rca_approved else 0,
+                    run.created_at,
+                    run.updated_at,
+                    payload,
+                ),
+            )
+        return run
+
+    def load_run(self, run_id: str) -> RunRecord:
+        self.migrate()
+        with self._connect() as conn:
+            row = conn.execute("SELECT payload_json FROM runs WHERE run_id = ?", (run_id,)).fetchone()
+        if row is None:
+            raise KeyError(run_id)
+        return RunRecord(**json.loads(row["payload_json"]))
+
+    def update_run(self, run: RunRecord) -> RunRecord:
+        self.migrate()
+        run.updated_at = datetime.now(timezone.utc).isoformat()
+        payload = json.dumps(run.model_dump(mode="json"), sort_keys=True)
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE runs
+                SET ticket_id = ?,
+                    repo = ?,
+                    kind = ?,
+                    status = ?,
+                    rca_approved = ?,
+                    updated_at = ?,
+                    payload_json = ?
+                WHERE run_id = ?
+                """,
+                (
+                    run.ticket_id,
+                    run.repo,
+                    run.kind,
+                    run.status,
+                    1 if run.rca_approved else 0,
+                    run.updated_at,
+                    payload,
+                    run.run_id,
+                ),
+            )
+        return run
+
+    def approve_rca(self, run_id: str, operator_id: str) -> RunRecord:
+        """Approves Root Cause Analysis (RCA) for an investigation run. Human operator gate."""
+        run = self.load_run(run_id)
+        run.rca_approved = True
+        return self.update_run(run)
+
+    def complete_run(self, run_id: str, actor_role: str = "operator") -> RunRecord:
+        """Transitions a run to done. Enforces agent self-reporting prohibition and investigation approve_rca gate."""
+        if actor_role.lower() in ("agent", "builder", "subagent", "runner", "ai", "llm", "claude-code", "copilot"):
+            raise PermissionError("Autonomous agents are prohibited from self-reporting done status.")
+
+        run = self.load_run(run_id)
+        if run.kind == "investigation" and not run.rca_approved:
+            raise PermissionError(
+                "Investigation run requires an approved RCA (approve_rca human gate) before transition to done."
+            )
+
+        run.status = "done"
+        return self.update_run(run)
+
+    def list_runs(self, status: Optional[str] = None, repo: Optional[str] = None) -> list[RunRecord]:
+        self.migrate()
+        query = "SELECT payload_json FROM runs"
+        clauses = []
+        params: list[Any] = []
+        if status is not None:
+            clauses.append("status = ?")
+            params.append(status)
+        if repo is not None:
+            clauses.append("repo = ?")
+            params.append(repo)
+        if clauses:
+            query += " WHERE " + " AND ".join(clauses)
+        query += " ORDER BY created_at DESC"
+        with self._connect() as conn:
+            rows = conn.execute(query, tuple(params)).fetchall()
+        return [RunRecord(**json.loads(row["payload_json"])) for row in rows]

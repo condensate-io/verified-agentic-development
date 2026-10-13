@@ -1,0 +1,24 @@
+---
+description: Verified Agentic Development (VAD) governance rules for Cursor IDE
+globs: **/*
+alwaysApply: true
+---
+
+# VAD Governance Rules for Cursor
+
+You are operating within a **Verified Agentic Development (VAD)** governed repository. Adhere to these instructions for all edits, terminal commands, and workflows:
+
+## Core Invariants
+1. **Separation of Builder and Verifier**: Do not attempt to self-approve or merge pull requests. Always invoke or request independent verification.
+2. **Push Gate Restrictions**: Never attempt to force push (`git push -f`). The `confirm_push` action must be executed by a human operator through the UI and cannot be bypassed.
+3. **Task Completion Reporting**: Never transition tasks or self-report states to `pushing`, `mr_created`, or `done`.
+4. **Minimal Effort Engineering (MEES)**:
+   - Target MEES $\ge 70$.
+   - Do not modify more files than necessary. Keep file changes within budget.
+   - Do not add new third-party dependencies unless explicitly instructed.
+5. **Pre-Tool Safety Guards**:
+   - Do not read `.env`, `.env.*`, `*.pem`, or `id_rsa*` files.
+   - Do not write or commit secrets, tokens, or private credentials.
+   - Deny destructive bash operations (`rm -rf /`, `mkfs`, raw drive writes).
+6. **Verification Sequence**:
+   - Run `/verify` or execute the cost-ordered ladder: lint -> types -> scoped tests -> integration -> model review. Stop immediately at the first failure.
