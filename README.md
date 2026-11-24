@@ -6,6 +6,8 @@
 [![Docker: vad-runner](https://img.shields.io/badge/Verification-Docker_Isolated-orange.svg)](Dockerfile)
 [![Level: Enterprise L4](https://img.shields.io/badge/Maturity-Level_4_Autonomous_Governed-purple.svg)](maturity_model.md)
 
+> **Free for local evaluation & non-commercial use (BSL 1.1).** Deploying VAD across a commercial engineering team? **Request a pilot / commercial license at [support@condensate.io](mailto:support@condensate.io).**
+
 > **Verified Agentic Development (VAD)** is an enterprise control-system model and governance platform for AI-assisted and autonomous software engineering. VAD transforms software delivery from unverified, ad-hoc code generation into a closed-loop control system: **Intent is formalized, proof obligations are machine-executable, agents operate within bounded sandbox loops, and releases require cryptographic attestation.**
 
 ### Open-Core Ecosystem & Licensing
