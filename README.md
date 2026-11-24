@@ -10,11 +10,13 @@
 
 > **Verified Agentic Development (VAD)** is an enterprise control-system model and governance platform for AI-assisted and autonomous software engineering. VAD transforms software delivery from unverified, ad-hoc code generation into a closed-loop control system: **Intent is formalized, proof obligations are machine-executable, agents operate within bounded sandbox loops, and releases require cryptographic attestation.**
 
+**Stage 5 (current):** Evidence-driven autonomy via a Risk × Assurance matrix, fenced leases, Schema v12 ledger extensions, `MemoryAuthorityGuard`, pluggable memory providers, Ed25519 DSSE, and the 8-step Verified Delivery Flow (`vad workflow verified-delivery`).
+
 ### Open-Core Ecosystem & Licensing
 
 VAD is part of the **Condensate Open-Core** stack:
 - **Condensate Core (`condensate-io/core`)** & **TurboQuant Qdrant (`condensate-io/qdrant`)**: Permissive **Apache 2.0** memory engine, contradiction resolution, cryptographic provenance, MCP server, and SIMD retrieval.
-- **Verified Agentic Development (this repository)**: **BSL 1.1** enterprise control plane & governance layer (two-person release guardian gates, cross-harness review, SIEM audit ledger, and multi-client orchestration).
+- **Verified Agentic Development (this repository)**: **Business Source License 1.1 (`BUSL-1.1`)** enterprise control plane & governance layer (Risk × Assurance autonomy, two-person release guardian gates, cross-harness review, SIEM audit ledger, and multi-client orchestration).
 
 ### 10-Line Quickstart (Zero-Config Local SQLite + DSSE Attestation)
 
@@ -35,7 +37,7 @@ print("Audit events:", len(cp.store.list_control_plane_events(run_id="run-1")))
 
 ## 1. Current Implementation Status
 
-VAD has evolved from an initial concept into a full **Level 4 Enterprise Governed Platform** with automated work intake and agent orchestration.
+VAD is a **Level 4 Enterprise Governed Platform** with automated work intake, agent orchestration, and **Stage 5 evidence-driven autonomy**.
 
 ### Core Capabilities
 
@@ -49,22 +51,31 @@ VAD has evolved from an initial concept into a full **Level 4 Enterprise Governe
   - **Definition of Ready (DoR) Gate:** Automated ingress evaluation checking prompt injection safety, title/description completeness, and acceptance criteria.
   - **Two-Person Release Guardian Gate:** Strictly enforces that closing a remote ticket or merging a PR requires an SHA-256 evidence bundle digest and **two distinct actors** (builder agent + human release guardian).
   - **Bidirectional Sync Worker:** Background queue worker handling outbound status transitions, comments, and attestations with retry backoff and governance hold protection.
+- **Stage 5 Risk × Assurance Autonomy Matrix (`vad/policy/autonomy_matrix.py`, `vad/release/`):**
+  - Evidence-driven release decisions across `low` / `medium` / `high` / `critical` risk tiers and assurance levels `A1_BASIC` → `A4_RESTRICTED`.
+  - Freshness, drift, separation-of-duties, and optional OPA Rego cross-checks (`policies/vad.rego`) fail closed with deterministic block reasons.
+- **Fenced Orchestration & Schema v12 Ledger (`vad/control_plane/`, `vad/server/db/store.py`):**
+  - Monotonic lease `fence_token` enforcement (`409` on stale/zombie writers), idempotency records, and durable `RunCheckpoint` stages.
+  - Schema v12 tables for release decisions, lesson promotions, delivery outcomes, and independent audit replay.
+- **Verified Delivery Flow (`vad/workflows/verified_delivery.py`):**
+  - Reference 8-step lifecycle from EIP creation through independent verification, policy decision, release, memory sync, and human lesson promotion.
 - **Autonomous Orchestrator (`vad/orchestrator/`):**
   - Directed Acyclic Graph (DAG) task scheduling, dependency resolution, admission control, parallel agent dispatch, heartbeat monitoring, and staged commit approval.
 - **Multi-Harness Agent Runners (`vad/runners/`):**
   - Native execution adapters for Claude Code, Cursor, GitHub Copilot, Codex, Aider, and Python SDK.
-- **Cross-Harness Review & DSSE Attestation (`vad/review/`, `vad/signing/`):**
-  - Cryptographic DSSE signatures, independent verifier attestation, and rebase stability guards.
+- **Cross-Harness Review & Ed25519 DSSE Attestation (`vad/review/`, `vad/signing/`):**
+  - Local Ed25519 key providers, in-toto DSSE envelopes, independent verifier attestation, freshness validators, and rebase stability guards.
 - **Declarative Governance (`vad/policy/`):**
   - Configurable Quality Gates (MEES effort score, cyclomatic complexity, line deltas, dependency manifest checks), maturity progression gate (L1–L5), and scope boundary enforcement.
 - **Enterprise Audit & Telemetry (`vad/audit/`):**
-  - Append-only SQLite audit ledger, centralized streaming hooks, SIEM export, and token/cost budgeting.
+  - Append-only SQLite audit ledger, independent `verify-trail` replay, outcome metrics (`vad metrics autonomy`), SIEM export, and token/cost budgeting.
 - **Operator Terminal UI (`vad/tui/`):**
   - Interactive Textual TUI dashboard for real-time decision inspection, dependency graph navigation, live telemetry, and staged release gates.
 - **SkillGuard Zero-Trust Registry (`vad/integrity/`):**
   - Cryptographic SHA-256 hash verification across all custom skills, prompt templates, and lifecycle hooks.
-- **Semantic Memory & Learning Ledger (`vad/memory/`):**
-  - Persistent skill ledger, learning gaps miner, and optional native integration with [Condensate Core](https://github.com/condensate-io/core).
+- **Pluggable Memory Providers & Authority Guard (`vad/memory/`):**
+  - Interchangeable providers (`null`, `local`, `condensate_core`, `mem0`, `graphiti`, `custom_http` / `custom_mcp`) behind `MemoryGateway`.
+  - `MemoryAuthorityGuard` keeps memory advisory-only: providers cannot mutate evidence, verification, approvals, or policy.
 
 ---
 
@@ -155,7 +166,24 @@ vad control-plane serve --port 8080 --db .vad/control-plane/vad.sqlite3
 vad tui
 ```
 
-### 4. Running the Verification Suite in Docker
+### 4. Stage 5 Verified Delivery, Lessons, Metrics & Audit
+```bash
+# Run the 8-step Verified Delivery Flow (local null/local memory)
+vad workflow verified-delivery \
+  --run-id demo-1 --eip-name demo --request "Document Stage 5 CLI" --risk low
+
+# Review and promote candidate lessons (human gate)
+vad lessons list --db .vad/control-plane/vad.sqlite3
+vad lessons approve <lesson_id> --reviewer alice --role release_guardian
+
+# Autonomy / verification outcome metrics
+vad metrics autonomy --db .vad/control-plane/vad.sqlite3
+
+# Independently verify a run from the authoritative ledger
+vad audit verify-trail <run_id> --db .vad/control-plane/vad.sqlite3
+```
+
+### 5. Running the Verification Suite in Docker
 All verification must execute inside the isolated Docker runner:
 ```bash
 # Build the runner container
@@ -198,6 +226,9 @@ Comprehensive guides and operational manuals are available under [`docs/`](docs/
 
 ### Guides & Manuals
 - [Quickstart Guide](docs/quickstart.md) — 5-minute setup and guided walkthrough.
+- [Verified Delivery Flow](docs/verified-delivery-flow.md) — Stage 5 eight-step Risk × Assurance lifecycle.
+- [Memory Providers](docs/memory-providers.md) — Pluggable advisory memory backends and conformance.
+- [Authority Boundaries](docs/architecture/authority-boundaries.md) — `MemoryAuthorityGuard` and ledger authority.
 - [Autonomous Orchestrator Guide](docs/how-to/autonomous-orchestrator.md) — Multi-agent parallel task scheduling.
 - [Work Intake & Governed MCP Guide](docs/how-to/work-intake-and-mcp.md) — Production connector and MCP setup.
 - [Declarative Governance Guide](docs/how-to/declarative-governance.md) — Quality gates, policies, and invariants.
@@ -205,6 +236,7 @@ Comprehensive guides and operational manuals are available under [`docs/`](docs/
 - [Incident Response & Post-Mortem](docs/how-to/incident-response.md) — Automated incident resolution loops.
 - [Claude Code Plugin Guide](docs/how-to/claude-code-plugin.md) — 7 lifecycle hooks and slash commands.
 - [Condensate Core Integration Guide](docs/condensate-integration.md) — Semantic memory engine integration.
+- [Changelog](CHANGELOG.md) — Release history including Stage 5.
 
 ### User Journeys
 - [Developer Pair Programming Journey](docs/user-journeys/developer-workflow.md) — Daily workflow with governed AI.
@@ -219,15 +251,15 @@ Comprehensive guides and operational manuals are available under [`docs/`](docs/
 
 ## 7. Integration with Condensate Core (Apache 2.0)
 
-While VAD provides the BSL 1.1 governance loop, execution control plane, and connector surface, [`condensate-io/core`](https://github.com/condensate-io/core) (**Apache 2.0**) serves as the permissive open-source causal memory engine and MCP server. VAD's `MemoryGateway` persists evidence bundles, evaluation outcomes, and retrospective learnings directly into Condensate Core.
+While VAD provides the BSL 1.1 governance loop, execution control plane, and connector surface, [`condensate-io/core`](https://github.com/condensate-io/core) (**Apache 2.0**) is the **reference** pluggable memory provider—not a hard dependency. VAD's `MemoryGateway` + `MemoryAuthorityGuard` keep providers advisory-only, and the same interface supports `null`, `local`, `mem0`, `graphiti`, and custom HTTP/MCP endpoints.
 
-See the [Condensate Core Integration Guide](docs/condensate-integration.md) for full details.
+See the [Condensate Core Integration Guide](docs/condensate-integration.md) and [Memory Providers](docs/memory-providers.md) for full details.
 
 ---
 
 ## 8. License & Open-Core Commercial Use
 
-Verified Agentic Development (VAD) is licensed under the **Business Source License 1.1 (BSL 1.1)** (converting to Apache 2.0 on `2030-01-01`). See [`LICENSE`](LICENSE) for complete terms. For permissive open-source agent memory and MCP tooling without commercial restrictions, see **[Condensate Core (`Apache 2.0`)](https://github.com/condensate-io/core)**.
+Verified Agentic Development (VAD) is licensed under the **Business Source License 1.1** (SPDX: **`BUSL-1.1`**, converting to Apache 2.0 on `2030-01-01`). See [`LICENSE`](LICENSE) for complete terms. For permissive open-source agent memory and MCP tooling without commercial restrictions, see **[Condensate Core (`Apache 2.0`)](https://github.com/condensate-io/core)**.
 
 ### Non-Commercial & Evaluation Use
 You are free to use, modify, and inspect VAD for personal projects, academic research, evaluation, testing, and non-commercial open-source contributions free of charge, subject to the **Mandatory Attribution Condition**.
