@@ -71,6 +71,20 @@ Rather than unstructured natural language prompting, VAD anchors changes in an *
 vad eip init --name saml-sso-integration --out eip.yaml
 ```
 
+### Risk, Assurance, and Freshness
+Every EIP carries a **risk tier** (`low`, `medium`, `high`, `critical`). The tier decides how much proof is required and how much autonomy the change earns:
+
+| Risk tier | Default assurance | Evidence stays fresh for | Who must be involved |
+|-----------|-------------------|--------------------------|----------------------|
+| `low` | `A1_BASIC` | 24 hours | Checks only |
+| `medium` | `A2_INDEPENDENT` | 4 hours | An independent verifier |
+| `high` | `A3_ATTESTED` | 1 hour | Independent verifier plus a human release guardian |
+| `critical` | `A4_RESTRICTED` | 15 minutes | Explicit authorization, independent verifier, two human approvers |
+
+You can set `assurance_level` and `freshness_policy` explicitly in the EIP. A `critical` EIP cannot be set below `A4_RESTRICTED`. Individual proof obligations may also require independent execution (`independent_execution_required`). A SAML sign-in change like the example below would normally be `high` risk.
+
+If a memory provider is configured, VAD may add advice when you plan the change: relevant past incidents, and regression proof obligations from lessons a human has approved. Unapproved lessons are never applied.
+
 ### Anatomical Structure of `eip.yaml`
 ```yaml
 apiVersion: vad.io/v1alpha1
@@ -168,6 +182,18 @@ wsl docker run --rm -v /mnt/c/LocalProjects/condensate:/workspace -w /workspace 
    - Token consumption & duration
    - Timestamp and runner ID
 
+### Your Own Test Run Is Not the Final Proof
+For `medium` risk and above, the result of the builder's own test run is treated as a **claim**, not proof. VAD runs the proof obligations again through an **independent verifier** (a different actor, in an isolated environment) against the exact commit and tree. The verification receipt records the commit, tree hash, environment digest, verifier identity, and an expiry time.
+
+If you edit, rebase, or change dependencies after verification, the receipt becomes **stale** and release is blocked until verification runs again. This is expected behavior, not an error in your change.
+
+To run the whole governed pipeline (EIP, proof plan, fenced build, independent verification, policy decision, release record, audit check) in one go:
+```bash
+vad workflow verified-delivery --run-id run-001 --eip-name saml-sso-integration \
+  --request "Add SAML sign-in" --risk high --approver release-guardian-alex
+```
+See [Verified Delivery Flow](verified-delivery.md) for what each risk tier needs.
+
 ---
 
 ## 6. Stage 5: Cross-Harness Review & DSSE Attestation
@@ -181,7 +207,7 @@ vad review request --run-id current --builder claude_code
 - The **Cross-Harness Coordinator** pairs the patch with a verifier harness (e.g. Cursor or Codex).
 - **RebaseGuard** confirms the patch has zero semantic conflicts with `main`.
 - The verifier reviews the diff against the EIP acceptance criteria.
-- Upon passing, the review outcome is wrapped in a **DSSE (Dead Simple Signing Envelope)**:
+- Upon passing, the review outcome is wrapped in a **DSSE (Dead Simple Signing Envelope)** signed with a local **Ed25519** key (generated under `.vad/keys/` on first use; there is no shared default secret in strict mode). The attestation records the EIP digest, proof plan digest, assurance level, and expiry:
   ```json
   {
     "payloadType": "application/vnd.in-toto+json",
@@ -217,3 +243,9 @@ vad commit --eip eip.yaml --evidence evidence/I2.json
 | **`PreToolUse: Action denied`** | Prohibited command (`pip install`, `curl`) | Run dependency installations inside Docker runner rather than locally. |
 | **`SecurityAudit: Non-local URL`** | Test contains non-loopback URL | Replace with `http://127.0.0.1:<port>` or `localhost`. |
 | **`Stop: Incomplete obligations`** | Proof plan tests haven't been run | Execute `/vad-verify` inside Docker before ending the session. |
+| **`blocked_stale_evidence`** | Code, tree, dependencies, or time window changed after verification | Re-run independent verification on the current commit. |
+| **`human_approval_required`** | High risk change has no distinct human guardian yet | Ask a release guardian (not the builder) to approve. |
+| **`denied_policy` (self-verification)** | Builder and verifier are the same actor | Use a distinct verifier identity. |
+| **`409 Conflict` on a work item update** | Your host holds an old `fence_token` after the task was reassigned | Re-claim the work item to receive the current token. |
+
+After a successful run, you can check the trail yourself with `vad audit verify-trail <run_id>`.

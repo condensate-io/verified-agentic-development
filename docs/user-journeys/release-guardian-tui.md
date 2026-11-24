@@ -151,3 +151,53 @@ Upon pressing `Enter`:
 1. VAD verifies that `operator != builder`.
 2. Appends an immutable `ApprovalEvent` to `vad.sqlite3`.
 3. Issues the authenticated Git push to remote.
+
+---
+
+## 7. What Needs Your Approval: Risk-Based Authority
+
+You are not asked to approve everything. VAD decides what needs a human based on risk and the proof available.
+
+| Risk | Example | Your involvement |
+|------|---------|------------------|
+| **Low** | Documentation or isolated test update | None. Released autonomously after checks. |
+| **Medium** | Internal API change | None, provided an independent verifier passed on fresh evidence. |
+| **High** | Authentication or data migration | Required. The change waits as `human_approval_required` until you approve. |
+| **Critical** | Production access or policy change | Required. Needs an explicit authorization reference and two distinct human approvers (`restricted_authorization_required`). |
+
+Before approving, check the release decision for the run:
+```bash
+curl http://127.0.0.1:8080/release-decisions?run_id=run-4521
+```
+Look for: the assurance achieved versus required, whether evidence is fresh, who the builder and verifier were, and the recorded approvers. VAD will not let you approve if you are the builder, and a decision made on stale evidence is blocked until verification is re-run.
+
+---
+
+## 8. Reviewing Candidate Lessons
+
+After runs complete, VAD may propose lessons (for example, "add a token-expiry proof obligation for auth changes"). These have no effect until you approve them.
+
+```bash
+vad lessons list --db .vad/control-plane/vad.sqlite3 --status proposed
+vad lessons approve <lesson_id> --reviewer release-guardian-neeraj --role release_guardian --note "Confirmed against run-4521"
+vad lessons reject <lesson_id> --reviewer release-guardian-neeraj --role release_guardian --reason "Too broad"
+```
+
+Approve only lessons you would be comfortable applying automatically to future similar changes. See [Learning Loop and Memory](learning-loop-and-memory.md).
+
+---
+
+## 9. Keeping an Eye on Outcomes
+
+```bash
+vad metrics autonomy --db .vad/control-plane/vad.sqlite3
+```
+
+Review these regularly to decide whether autonomy is being granted safely:
+
+- autonomous safe pass-through rate
+- escaped defects
+- verification false positives
+- recovery success rate
+- human review time (median and 95th percentile)
+- cost per accepted change

@@ -66,3 +66,53 @@ report.export_pdf("compliance-soc2-audit-package.pdf")
 - **Separation of Duties Evidence (2-Person Rule Logs)**
 - **Cryptographic Attestation Verification (DSSE Envelopes)**
 - **Change Management Evidence (DoR Gates & Quality Gate Logs)**
+
+---
+
+## 5. Independent Audit of Any Run
+
+An auditor can verify a run from VAD's own ledger, without trusting the builder agent or any memory provider:
+
+```bash
+vad audit verify-trail <run_id> --db .vad/control-plane/vad.sqlite3 --key-dir .vad/keys
+```
+
+The same check is available over HTTP as `GET /audit/verify-trail/{run_id}` (200 when verified, 422 when not). The command exits with a non-zero status if any check fails.
+
+| Check | What it proves |
+|-------|----------------|
+| Evidence integrity | The stored evidence still matches its recorded digest (detects tampering). |
+| EIP and proof plan digests | The intent and proof plan the run used are on record. |
+| Actor separation | Builder and verifier were different (except low-risk, basic-assurance runs). |
+| Verification passed | The authoritative verification result is a pass. |
+| DSSE attestation | The Ed25519 signature is valid, approves the change, and matches the expected commit. |
+| Release decision | The decision matches the evidence and no builder approved their own work. |
+| Checkpoint chain | Stages and fence tokens only move forward. |
+| Memory authority | No memory provider injected an approval, override, or bypass. |
+
+Signing uses a local Ed25519 key generated under `.vad/keys/`. Strict mode refuses the old shared default secret.
+
+---
+
+## 6. Outcome Metrics for Governance Reviews
+
+Autonomy is only useful if it is safe. VAD reports six measures:
+
+```bash
+vad metrics autonomy --db .vad/control-plane/vad.sqlite3
+```
+
+- **Autonomous safe pass-through rate:** changes released without manual intervention and without a later escaped defect.
+- **Escaped defects:** incidents linked back to previously accepted runs.
+- **Verification false positives:** rejections later judged to be wrong.
+- **Recovery success rate:** interrupted runs that completed after recovery.
+- **Human review time:** median and 95th percentile.
+- **Cost per accepted change.**
+
+The same data is served at `GET /metrics/autonomy`. Figures are broken down by risk tier.
+
+---
+
+## 7. Governance of Learned Rules
+
+Lessons proposed by the system are advisory until a human approves them. Approval decisions are stored in VAD's ledger (`lesson_promotions`) with the reviewer's identity, and only `release_guardian` or `operator` roles can decide. Memory providers can be replaced or taken offline without changing any verification result, approval, or ledger entry. See [Learning Loop and Memory](learning-loop-and-memory.md).

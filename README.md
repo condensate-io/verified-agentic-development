@@ -211,7 +211,9 @@ Comprehensive guides and operational manuals are available under [`docs/`](docs/
 - [Work Intake & Remote Ticket Resolution](docs/user-journeys/work-intake-connectors.md) — Jira/GitHub Issue to verified release.
 - [Autonomous Swarm Orchestration](docs/user-journeys/autonomous-orchestration.md) — Scaling parallel agents.
 - [Release Guardian & 2-Person Release Gates](docs/user-journeys/release-guardian-tui.md) — Production release sign-off.
-- [Enterprise Compliance & SIEM Audit](docs/user-journeys/enterprise-compliance.md) — Continuous compliance reporting.
+- [Enterprise Compliance & SIEM Audit](docs/user-journeys/enterprise-compliance.md) — Continuous compliance reporting, independent audit, and outcome metrics.
+- [Verified Delivery Flow](docs/user-journeys/verified-delivery.md) — Risk-based autonomy from request to verified release.
+- [Learning Loop & Pluggable Memory](docs/user-journeys/learning-loop-and-memory.md) — Facts, reviewed lessons, and memory providers.
 
 ---
 
