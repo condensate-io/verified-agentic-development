@@ -8,6 +8,27 @@
 
 > **Verified Agentic Development (VAD)** is an enterprise control-system model and governance platform for AI-assisted and autonomous software engineering. VAD transforms software delivery from unverified, ad-hoc code generation into a closed-loop control system: **Intent is formalized, proof obligations are machine-executable, agents operate within bounded sandbox loops, and releases require cryptographic attestation.**
 
+### Open-Core Ecosystem & Licensing
+
+VAD is part of the **Condensate Open-Core** stack:
+- **Condensate Core (`condensate-io/core`)** & **TurboQuant Qdrant (`condensate-io/qdrant`)**: Permissive **Apache 2.0** memory engine, contradiction resolution, cryptographic provenance, MCP server, and SIMD retrieval.
+- **Verified Agentic Development (this repository)**: **BSL 1.1** enterprise control plane & governance layer (two-person release guardian gates, cross-harness review, SIEM audit ledger, and multi-client orchestration).
+
+### 10-Line Quickstart (Zero-Config Local SQLite + DSSE Attestation)
+
+```python
+from vad.control_plane.sdk import LocalControlPlaneClient
+from vad.control_plane.events import ControlPlaneEvent, ControlPlaneEventKind, ControlPlaneEventStatus
+from vad.review.dsse_attestation import DSSEAttestor
+
+cp = LocalControlPlaneClient.from_db_path(".vad/control-plane/vad.sqlite3")
+attestor = DSSEAttestor()
+env = attestor.create_review_attestation("abc1234", "approved", "verifier-1", {"tests": 12})
+assert attestor.verify_review_attestation(env, "abc1234")
+cp.emit_event(ControlPlaneEvent(sequence=1, client_id="cli-1", run_id="run-1", kind=ControlPlaneEventKind.PROOF_FINISHED, status=ControlPlaneEventStatus.PASSED, actor="verifier-1", role="verifier", summary="DSSE attested"))
+print("Audit events:", len(cp.store.list_control_plane_events(run_id="run-1")))
+```
+
 ---
 
 ## 1. Current Implementation Status
@@ -192,17 +213,17 @@ Comprehensive guides and operational manuals are available under [`docs/`](docs/
 
 ---
 
-## 7. Integration with Condensate Core
+## 7. Integration with Condensate Core (Apache 2.0)
 
-While VAD provides the governance loop, execution control plane, and connector surface, [`condensate-io/core`](https://github.com/condensate-io/core) serves as the semantic memory and knowledge storage engine. VAD's `MemoryGateway` persists evidence bundles, evaluation outcomes, and retrospective learnings directly into Condensate Core.
+While VAD provides the BSL 1.1 governance loop, execution control plane, and connector surface, [`condensate-io/core`](https://github.com/condensate-io/core) (**Apache 2.0**) serves as the permissive open-source causal memory engine and MCP server. VAD's `MemoryGateway` persists evidence bundles, evaluation outcomes, and retrospective learnings directly into Condensate Core.
 
 See the [Condensate Core Integration Guide](docs/condensate-integration.md) for full details.
 
 ---
 
-## 8. License & Commercial Use
+## 8. License & Open-Core Commercial Use
 
-Verified Agentic Development (VAD) is licensed under the **Business Source License 1.1 (BSL 1.1)**. See [`LICENSE`](LICENSE) for complete terms.
+Verified Agentic Development (VAD) is licensed under the **Business Source License 1.1 (BSL 1.1)** (converting to Apache 2.0 on `2030-01-01`). See [`LICENSE`](LICENSE) for complete terms. For permissive open-source agent memory and MCP tooling without commercial restrictions, see **[Condensate Core (`Apache 2.0`)](https://github.com/condensate-io/core)**.
 
 ### Non-Commercial & Evaluation Use
 You are free to use, modify, and inspect VAD for personal projects, academic research, evaluation, testing, and non-commercial open-source contributions free of charge, subject to the **Mandatory Attribution Condition**.
