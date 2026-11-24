@@ -3,25 +3,36 @@ from __future__ import annotations
 import json
 import sqlite3
 from datetime import datetime, timezone
+from enum import Enum
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from vad.evidence.bundle import EvidenceBundle, RunEvidence
 from vad.policy.decisions import PolicyDecision
+from vad.control_plane.checkpoints import RunCheckpoint
 from vad.control_plane.clients import ClientHeartbeat, ClientManifest, ClientRuntimeStatus, ClientStatusSnapshot
 from vad.control_plane.events import ControlPlaneEvent
-from vad.control_plane.leases import TaskLease, TaskLeaseStatus
+from vad.control_plane.idempotency import IdempotencyRecord
+from vad.control_plane.leases import TaskLease, TaskLeaseAcquireRequest, TaskLeaseStatus, new_task_lease
 from vad.control_plane.projection import build_dashboard_projection
 from vad.control_plane.governance_records import OperatorIntentRecord
 from vad.control_plane.plugins import PluginInventoryRecord
 from vad.control_plane.run_task_state import RunTaskState
 from vad.control_plane.work_items import WorkItem, WorkItemStatus
+from vad.release.decision import ReleaseDecision
 from vad.repo.diff_workflow import DiffApplyRecord, DiffProposal
 
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
+
+
+def _coerce_enum_str(value: Any) -> str:
+    if isinstance(value, Enum):
+        return str(value.value)
+    return str(value)
 
 
 class ApprovalEvent(BaseModel):
@@ -99,6 +110,57 @@ class RunRecord(BaseModel):
     updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 
+class LessonPromotionRecord(BaseModel):
+    promotion_id: str = Field(default_factory=lambda: f"promo-{uuid4().hex[:12]}")
+    lesson_id: str
+    title: str
+    recommendation: str = ""
+    proposed_rule_type: str = "general_guidance"
+    review_status: str = "proposed"
+    reviewed_by: str | None = None
+    derived_from_fact_ids: list[str] = Field(default_factory=list)
+    domain_tags: list[str] = Field(default_factory=list)
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    reviewed_at: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+    @field_validator("proposed_rule_type", "review_status", mode="before")
+    @classmethod
+    def coerce_enum_fields(cls, value: Any) -> str:
+        return _coerce_enum_str(value)
+
+
+class DeliveryOutcomeRecord(BaseModel):
+    outcome_id: str = Field(default_factory=lambda: f"outcome-{uuid4().hex[:12]}")
+    run_id: str
+    evidence_digest: str
+    risk_tier: str
+    accepted: bool
+    autonomous: bool
+    verification_false_positive: bool = False
+    fault_injected: bool = False
+    recovered: bool = False
+    human_review_seconds: float | None = None
+    cost_usd: float = 0.0
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+    @field_validator("risk_tier", mode="before")
+    @classmethod
+    def coerce_risk_tier(cls, value: Any) -> str:
+        return _coerce_enum_str(value)
+
+
+class DefectLinkRecord(BaseModel):
+    defect_id: str = Field(default_factory=lambda: f"defect-{uuid4().hex[:12]}")
+    run_id: str
+    evidence_digest: str
+    incident_id: str
+    severity: str
+    summary: str
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+
 class ServerStore:
     def __init__(self, db_path: Path):
         self.db_path = db_path
@@ -143,6 +205,9 @@ class ServerStore:
             if current < 11:
                 self._migrate_011(conn)
                 current = 11
+            if current < 12:
+                self._migrate_012(conn)
+                current = 12
             conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
     def save_run_evidence(self, evidence: RunEvidence) -> StoredRunEvidence:
@@ -576,6 +641,35 @@ class ServerStore:
             lost_task_leases=released_leases,
         )
 
+    @staticmethod
+    def _task_lease_from_row(row: sqlite3.Row) -> TaskLease:
+        data = json.loads(row["payload_json"])
+        if "fence_token" not in data and row["fence_token"] is not None:
+            data["fence_token"] = int(row["fence_token"])
+        return TaskLease(**data)
+
+    def next_fence_token(self, task_id: str) -> int:
+        self.migrate()
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT MAX(fence_token) AS max_token FROM task_leases WHERE task_id = ?",
+                (task_id,),
+            ).fetchone()
+        if row is None or row["max_token"] is None:
+            return 1
+        return int(row["max_token"]) + 1
+
+    def acquire_task_lease(
+        self,
+        request: TaskLeaseAcquireRequest,
+        *,
+        now: datetime | None = None,
+    ) -> TaskLease:
+        self.load_client_manifest(request.client_id)
+        previous_token = self.next_fence_token(request.task_id) - 1
+        lease = new_task_lease(request, now=now, previous_fence_token=previous_token)
+        return self.save_task_lease(lease)
+
     def save_task_lease(self, lease: TaskLease) -> TaskLease:
         self.load_client_manifest(lease.client_id)
         self.migrate()
@@ -585,9 +679,9 @@ class ServerStore:
                 """
                 INSERT INTO task_leases(
                     task_id, run_id, client_id, role, actor, acquired_at,
-                    expires_at, status, payload_json
+                    expires_at, status, fence_token, payload_json
                 )
-                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(task_id) DO UPDATE SET
                     run_id=excluded.run_id,
                     client_id=excluded.client_id,
@@ -596,6 +690,7 @@ class ServerStore:
                     acquired_at=excluded.acquired_at,
                     expires_at=excluded.expires_at,
                     status=excluded.status,
+                    fence_token=excluded.fence_token,
                     payload_json=excluded.payload_json
                 """,
                 (
@@ -607,6 +702,7 @@ class ServerStore:
                     lease.acquired_at.isoformat(),
                     lease.expires_at.isoformat(),
                     lease.status.value,
+                    lease.fence_token,
                     payload,
                 ),
             )
@@ -616,12 +712,12 @@ class ServerStore:
         self.migrate()
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT payload_json FROM task_leases WHERE task_id = ?",
+                "SELECT fence_token, payload_json FROM task_leases WHERE task_id = ?",
                 (task_id,),
             ).fetchone()
         if row is None:
             raise KeyError(task_id)
-        return TaskLease(**json.loads(row["payload_json"]))
+        return self._task_lease_from_row(row)
 
     def list_task_leases(
         self,
@@ -630,7 +726,7 @@ class ServerStore:
         status: TaskLeaseStatus | None = None,
     ) -> list[TaskLease]:
         self.migrate()
-        query = "SELECT payload_json FROM task_leases"
+        query = "SELECT fence_token, payload_json FROM task_leases"
         clauses = []
         params: list[Any] = []
         if client_id is not None:
@@ -644,7 +740,7 @@ class ServerStore:
         query += " ORDER BY run_id, task_id"
         with self._connect() as conn:
             rows = conn.execute(query, tuple(params)).fetchall()
-        return [TaskLease(**json.loads(row["payload_json"])) for row in rows]
+        return [self._task_lease_from_row(row) for row in rows]
 
     def expire_task_leases_for_client(self, client_id: str) -> list[TaskLease]:
         expired = []
@@ -1490,3 +1586,513 @@ class ServerStore:
         with self._connect() as conn:
             rows = conn.execute(query, tuple(params)).fetchall()
         return [RunRecord(**json.loads(row["payload_json"])) for row in rows]
+
+    def _migrate_012(self, conn: sqlite3.Connection) -> None:
+        columns = {
+            row["name"] if isinstance(row, sqlite3.Row) else row[1]
+            for row in conn.execute("PRAGMA table_info(task_leases)").fetchall()
+        }
+        if "fence_token" not in columns:
+            conn.execute(
+                "ALTER TABLE task_leases ADD COLUMN fence_token INTEGER NOT NULL DEFAULT 1"
+            )
+
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS idempotency_records (
+                idempotency_key TEXT PRIMARY KEY,
+                route TEXT NOT NULL,
+                request_hash TEXT NOT NULL,
+                status_code INTEGER NOT NULL,
+                response_json TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS run_checkpoints (
+                checkpoint_id TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL,
+                work_item_id TEXT NOT NULL,
+                stage TEXT NOT NULL,
+                fence_token INTEGER NOT NULL,
+                actor TEXT NOT NULL,
+                role TEXT NOT NULL,
+                artifact_digests_json TEXT NOT NULL,
+                state_snapshot_json TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_run_checkpoints_run_created
+                ON run_checkpoints(run_id, created_at);
+
+            CREATE TABLE IF NOT EXISTS release_decisions (
+                decision_id TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL,
+                eip_digest TEXT NOT NULL,
+                evidence_digest TEXT NOT NULL,
+                risk_tier TEXT NOT NULL,
+                stage TEXT NOT NULL,
+                outcome TEXT NOT NULL,
+                can_release INTEGER NOT NULL,
+                payload_json TEXT NOT NULL,
+                decided_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_release_decisions_run
+                ON release_decisions(run_id, decided_at, decision_id);
+
+            CREATE TABLE IF NOT EXISTS lesson_promotions (
+                promotion_id TEXT PRIMARY KEY,
+                lesson_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                proposed_rule_type TEXT NOT NULL,
+                review_status TEXT NOT NULL,
+                reviewed_by TEXT,
+                derived_from_fact_ids_json TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_lesson_promotions_lesson
+                ON lesson_promotions(lesson_id, updated_at, promotion_id);
+            CREATE INDEX IF NOT EXISTS idx_lesson_promotions_status
+                ON lesson_promotions(review_status, updated_at, promotion_id);
+
+            CREATE TABLE IF NOT EXISTS delivery_outcomes (
+                outcome_id TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL,
+                evidence_digest TEXT NOT NULL,
+                risk_tier TEXT NOT NULL,
+                accepted INTEGER NOT NULL,
+                autonomous INTEGER NOT NULL,
+                verification_false_positive INTEGER NOT NULL DEFAULT 0,
+                fault_injected INTEGER NOT NULL DEFAULT 0,
+                recovered INTEGER NOT NULL DEFAULT 0,
+                human_review_seconds REAL,
+                cost_usd REAL NOT NULL DEFAULT 0.0,
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_delivery_outcomes_run
+                ON delivery_outcomes(run_id, created_at, outcome_id);
+
+            CREATE TABLE IF NOT EXISTS defect_links (
+                defect_id TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL,
+                evidence_digest TEXT NOT NULL,
+                incident_id TEXT NOT NULL,
+                severity TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_defect_links_run
+                ON defect_links(run_id, created_at, defect_id);
+            """
+        )
+
+    def save_idempotency_record(self, record: IdempotencyRecord) -> IdempotencyRecord:
+        self.migrate()
+        response_json = json.dumps(record.response_payload, sort_keys=True)
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO idempotency_records(
+                    idempotency_key, route, request_hash, status_code, response_json, created_at
+                )
+                VALUES(?, ?, ?, ?, ?, ?)
+                ON CONFLICT(idempotency_key) DO UPDATE SET
+                    route=excluded.route,
+                    request_hash=excluded.request_hash,
+                    status_code=excluded.status_code,
+                    response_json=excluded.response_json,
+                    created_at=excluded.created_at
+                """,
+                (
+                    record.idempotency_key,
+                    record.route,
+                    record.request_hash,
+                    record.status_code,
+                    response_json,
+                    record.created_at.isoformat(),
+                ),
+            )
+        return record
+
+    def load_idempotency_record(self, idempotency_key: str) -> IdempotencyRecord | None:
+        self.migrate()
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT idempotency_key, route, request_hash, status_code, response_json, created_at
+                FROM idempotency_records
+                WHERE idempotency_key = ?
+                """,
+                (idempotency_key,),
+            ).fetchone()
+        if row is None:
+            return None
+        return IdempotencyRecord(
+            idempotency_key=row["idempotency_key"],
+            route=row["route"],
+            request_hash=row["request_hash"],
+            status_code=int(row["status_code"]),
+            response_payload=json.loads(row["response_json"]),
+            created_at=datetime.fromisoformat(row["created_at"]),
+        )
+
+    def save_checkpoint(self, cp: RunCheckpoint) -> RunCheckpoint:
+        self.migrate()
+        artifact_digests_json = json.dumps(cp.artifact_digests, sort_keys=True)
+        state_snapshot_json = json.dumps(cp.state_snapshot, sort_keys=True)
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO run_checkpoints(
+                    checkpoint_id, run_id, work_item_id, stage, fence_token,
+                    actor, role, artifact_digests_json, state_snapshot_json, created_at
+                )
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(checkpoint_id) DO UPDATE SET
+                    run_id=excluded.run_id,
+                    work_item_id=excluded.work_item_id,
+                    stage=excluded.stage,
+                    fence_token=excluded.fence_token,
+                    actor=excluded.actor,
+                    role=excluded.role,
+                    artifact_digests_json=excluded.artifact_digests_json,
+                    state_snapshot_json=excluded.state_snapshot_json,
+                    created_at=excluded.created_at
+                """,
+                (
+                    cp.checkpoint_id,
+                    cp.run_id,
+                    cp.work_item_id,
+                    cp.stage.value,
+                    cp.fence_token,
+                    cp.actor,
+                    cp.role,
+                    artifact_digests_json,
+                    state_snapshot_json,
+                    cp.created_at.isoformat(),
+                ),
+            )
+        return cp
+
+    @staticmethod
+    def _checkpoint_from_row(row: sqlite3.Row) -> RunCheckpoint:
+        return RunCheckpoint(
+            checkpoint_id=row["checkpoint_id"],
+            run_id=row["run_id"],
+            work_item_id=row["work_item_id"],
+            stage=row["stage"],
+            fence_token=int(row["fence_token"]),
+            actor=row["actor"],
+            role=row["role"],
+            artifact_digests=json.loads(row["artifact_digests_json"]),
+            state_snapshot=json.loads(row["state_snapshot_json"]),
+            created_at=datetime.fromisoformat(row["created_at"]),
+        )
+
+    def list_checkpoints(
+        self,
+        run_id: str,
+        work_item_id: str | None = None,
+    ) -> list[RunCheckpoint]:
+        self.migrate()
+        query = (
+            "SELECT checkpoint_id, run_id, work_item_id, stage, fence_token, "
+            "actor, role, artifact_digests_json, state_snapshot_json, created_at "
+            "FROM run_checkpoints WHERE run_id = ?"
+        )
+        params: list[Any] = [run_id]
+        if work_item_id is not None:
+            query += " AND work_item_id = ?"
+            params.append(work_item_id)
+        query += " ORDER BY created_at ASC, rowid ASC, checkpoint_id ASC"
+        with self._connect() as conn:
+            rows = conn.execute(query, tuple(params)).fetchall()
+        return [self._checkpoint_from_row(row) for row in rows]
+
+    def latest_checkpoint(
+        self,
+        run_id: str,
+        work_item_id: str | None = None,
+    ) -> RunCheckpoint | None:
+        self.migrate()
+        query = (
+            "SELECT checkpoint_id, run_id, work_item_id, stage, fence_token, "
+            "actor, role, artifact_digests_json, state_snapshot_json, created_at "
+            "FROM run_checkpoints WHERE run_id = ?"
+        )
+        params: list[Any] = [run_id]
+        if work_item_id is not None:
+            query += " AND work_item_id = ?"
+            params.append(work_item_id)
+        query += " ORDER BY created_at DESC, rowid DESC, checkpoint_id DESC LIMIT 1"
+        with self._connect() as conn:
+            row = conn.execute(query, tuple(params)).fetchone()
+        if row is None:
+            return None
+        return self._checkpoint_from_row(row)
+
+    def save_release_decision(self, decision: ReleaseDecision) -> ReleaseDecision:
+        self.migrate()
+        payload = json.dumps(decision.model_dump(mode="json"), sort_keys=True)
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO release_decisions(
+                    decision_id, run_id, eip_digest, evidence_digest, risk_tier,
+                    stage, outcome, can_release, payload_json, decided_at
+                )
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(decision_id) DO UPDATE SET
+                    run_id=excluded.run_id,
+                    eip_digest=excluded.eip_digest,
+                    evidence_digest=excluded.evidence_digest,
+                    risk_tier=excluded.risk_tier,
+                    stage=excluded.stage,
+                    outcome=excluded.outcome,
+                    can_release=excluded.can_release,
+                    payload_json=excluded.payload_json,
+                    decided_at=excluded.decided_at
+                """,
+                (
+                    decision.decision_id,
+                    decision.run_id,
+                    decision.eip_digest,
+                    decision.evidence_digest,
+                    decision.risk_tier.value,
+                    decision.stage.value,
+                    decision.outcome.value,
+                    1 if decision.can_release else 0,
+                    payload,
+                    decision.decided_at.isoformat(),
+                ),
+            )
+        return decision
+
+    def list_release_decisions(self, run_id: str | None = None) -> list[ReleaseDecision]:
+        self.migrate()
+        query = "SELECT payload_json FROM release_decisions"
+        params: tuple[Any, ...] = ()
+        if run_id is not None:
+            query += " WHERE run_id = ?"
+            params = (run_id,)
+        query += " ORDER BY decided_at ASC, rowid ASC, decision_id ASC"
+        with self._connect() as conn:
+            rows = conn.execute(query, params).fetchall()
+        return [ReleaseDecision(**json.loads(row["payload_json"])) for row in rows]
+
+    def upsert_lesson_promotion(self, record: LessonPromotionRecord) -> LessonPromotionRecord:
+        self.migrate()
+        payload = json.dumps(record.model_dump(mode="json"), sort_keys=True)
+        fact_ids_json = json.dumps(record.derived_from_fact_ids, sort_keys=True)
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO lesson_promotions(
+                    promotion_id, lesson_id, title, proposed_rule_type, review_status,
+                    reviewed_by, derived_from_fact_ids_json, payload_json, updated_at
+                )
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(promotion_id) DO UPDATE SET
+                    lesson_id=excluded.lesson_id,
+                    title=excluded.title,
+                    proposed_rule_type=excluded.proposed_rule_type,
+                    review_status=excluded.review_status,
+                    reviewed_by=excluded.reviewed_by,
+                    derived_from_fact_ids_json=excluded.derived_from_fact_ids_json,
+                    payload_json=excluded.payload_json,
+                    updated_at=excluded.updated_at
+                """,
+                (
+                    record.promotion_id,
+                    record.lesson_id,
+                    record.title,
+                    record.proposed_rule_type,
+                    record.review_status,
+                    record.reviewed_by,
+                    fact_ids_json,
+                    payload,
+                    record.updated_at,
+                ),
+            )
+        return record
+
+    def load_lesson_promotion(self, lesson_id: str) -> LessonPromotionRecord | None:
+        self.migrate()
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT payload_json FROM lesson_promotions
+                WHERE lesson_id = ?
+                ORDER BY updated_at DESC, rowid DESC, promotion_id DESC
+                LIMIT 1
+                """,
+                (lesson_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return LessonPromotionRecord(**json.loads(row["payload_json"]))
+
+    def list_lesson_promotions(
+        self,
+        review_status: str | None = None,
+    ) -> list[LessonPromotionRecord]:
+        self.migrate()
+        query = "SELECT payload_json FROM lesson_promotions"
+        params: tuple[Any, ...] = ()
+        if review_status is not None:
+            query += " WHERE review_status = ?"
+            params = (_coerce_enum_str(review_status),)
+        query += " ORDER BY updated_at ASC, rowid ASC, promotion_id ASC"
+        with self._connect() as conn:
+            rows = conn.execute(query, params).fetchall()
+        return [LessonPromotionRecord(**json.loads(row["payload_json"])) for row in rows]
+
+    def record_delivery_outcome(self, outcome: DeliveryOutcomeRecord) -> DeliveryOutcomeRecord:
+        self.migrate()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO delivery_outcomes(
+                    outcome_id, run_id, evidence_digest, risk_tier, accepted, autonomous,
+                    verification_false_positive, fault_injected, recovered,
+                    human_review_seconds, cost_usd, created_at
+                )
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(outcome_id) DO UPDATE SET
+                    run_id=excluded.run_id,
+                    evidence_digest=excluded.evidence_digest,
+                    risk_tier=excluded.risk_tier,
+                    accepted=excluded.accepted,
+                    autonomous=excluded.autonomous,
+                    verification_false_positive=excluded.verification_false_positive,
+                    fault_injected=excluded.fault_injected,
+                    recovered=excluded.recovered,
+                    human_review_seconds=excluded.human_review_seconds,
+                    cost_usd=excluded.cost_usd,
+                    created_at=excluded.created_at
+                """,
+                (
+                    outcome.outcome_id,
+                    outcome.run_id,
+                    outcome.evidence_digest,
+                    outcome.risk_tier,
+                    1 if outcome.accepted else 0,
+                    1 if outcome.autonomous else 0,
+                    1 if outcome.verification_false_positive else 0,
+                    1 if outcome.fault_injected else 0,
+                    1 if outcome.recovered else 0,
+                    outcome.human_review_seconds,
+                    outcome.cost_usd,
+                    outcome.created_at,
+                ),
+            )
+        return outcome
+
+    def list_delivery_outcomes(
+        self,
+        run_id: str | None = None,
+        *,
+        risk_tier: str | None = None,
+    ) -> list[DeliveryOutcomeRecord]:
+        self.migrate()
+        query = (
+            "SELECT outcome_id, run_id, evidence_digest, risk_tier, accepted, autonomous, "
+            "verification_false_positive, fault_injected, recovered, "
+            "human_review_seconds, cost_usd, created_at "
+            "FROM delivery_outcomes"
+        )
+        clauses = []
+        params: list[Any] = []
+        if run_id is not None:
+            clauses.append("run_id = ?")
+            params.append(run_id)
+        if risk_tier is not None:
+            clauses.append("risk_tier = ?")
+            params.append(_coerce_enum_str(risk_tier))
+        if clauses:
+            query += " WHERE " + " AND ".join(clauses)
+        query += " ORDER BY created_at ASC, rowid ASC, outcome_id ASC"
+        with self._connect() as conn:
+            rows = conn.execute(query, tuple(params)).fetchall()
+        return [
+            DeliveryOutcomeRecord(
+                outcome_id=row["outcome_id"],
+                run_id=row["run_id"],
+                evidence_digest=row["evidence_digest"],
+                risk_tier=row["risk_tier"],
+                accepted=bool(row["accepted"]),
+                autonomous=bool(row["autonomous"]),
+                verification_false_positive=bool(row["verification_false_positive"]),
+                fault_injected=bool(row["fault_injected"]),
+                recovered=bool(row["recovered"]),
+                human_review_seconds=row["human_review_seconds"],
+                cost_usd=float(row["cost_usd"]),
+                created_at=row["created_at"],
+            )
+            for row in rows
+        ]
+
+    def record_defect_link(self, defect: DefectLinkRecord) -> DefectLinkRecord:
+        self.migrate()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO defect_links(
+                    defect_id, run_id, evidence_digest, incident_id, severity, summary, created_at
+                )
+                VALUES(?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(defect_id) DO UPDATE SET
+                    run_id=excluded.run_id,
+                    evidence_digest=excluded.evidence_digest,
+                    incident_id=excluded.incident_id,
+                    severity=excluded.severity,
+                    summary=excluded.summary,
+                    created_at=excluded.created_at
+                """,
+                (
+                    defect.defect_id,
+                    defect.run_id,
+                    defect.evidence_digest,
+                    defect.incident_id,
+                    defect.severity,
+                    defect.summary,
+                    defect.created_at,
+                ),
+            )
+        return defect
+
+    def list_defect_links(
+        self,
+        run_id: str | None = None,
+        *,
+        incident_id: str | None = None,
+    ) -> list[DefectLinkRecord]:
+        self.migrate()
+        query = (
+            "SELECT defect_id, run_id, evidence_digest, incident_id, severity, summary, created_at "
+            "FROM defect_links"
+        )
+        clauses = []
+        params: list[Any] = []
+        if run_id is not None:
+            clauses.append("run_id = ?")
+            params.append(run_id)
+        if incident_id is not None:
+            clauses.append("incident_id = ?")
+            params.append(incident_id)
+        if clauses:
+            query += " WHERE " + " AND ".join(clauses)
+        query += " ORDER BY created_at ASC, rowid ASC, defect_id ASC"
+        with self._connect() as conn:
+            rows = conn.execute(query, tuple(params)).fetchall()
+        return [
+            DefectLinkRecord(
+                defect_id=row["defect_id"],
+                run_id=row["run_id"],
+                evidence_digest=row["evidence_digest"],
+                incident_id=row["incident_id"],
+                severity=row["severity"],
+                summary=row["summary"],
+                created_at=row["created_at"],
+            )
+            for row in rows
+        ]

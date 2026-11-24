@@ -1806,6 +1806,54 @@ def main():
     operator_intents_show_parser.add_argument("intent_ref", help="Operator intent reference")
     operator_intents_show_parser.add_argument("--out", help="Path to write JSON result")
 
+    lessons_parser = subparsers.add_parser("lessons", help="Review and promote candidate lessons")
+    lessons_subparsers = lessons_parser.add_subparsers(dest="lessons_command")
+    lessons_list_parser = lessons_subparsers.add_parser("list", help="List lesson promotion records")
+    lessons_list_parser.add_argument("--db", default=".vad/control-plane/vad.sqlite3", help="SQLite database path")
+    lessons_list_parser.add_argument("--status", help="Filter by review_status (proposed|approved|rejected|superseded)")
+    lessons_approve_parser = lessons_subparsers.add_parser("approve", help="Approve a lesson for policy/proof planning")
+    lessons_approve_parser.add_argument("--db", default=".vad/control-plane/vad.sqlite3", help="SQLite database path")
+    lessons_approve_parser.add_argument("lesson_id", help="Lesson identifier")
+    lessons_approve_parser.add_argument("--reviewer", required=True, help="Human reviewer identity")
+    lessons_approve_parser.add_argument("--role", default="release_guardian", help="Reviewer role (release_guardian|operator)")
+    lessons_approve_parser.add_argument("--note", default="", help="Optional review note")
+    lessons_reject_parser = lessons_subparsers.add_parser("reject", help="Reject a candidate lesson")
+    lessons_reject_parser.add_argument("--db", default=".vad/control-plane/vad.sqlite3", help="SQLite database path")
+    lessons_reject_parser.add_argument("lesson_id", help="Lesson identifier")
+    lessons_reject_parser.add_argument("--reviewer", required=True, help="Human reviewer identity")
+    lessons_reject_parser.add_argument("--role", default="release_guardian", help="Reviewer role")
+    lessons_reject_parser.add_argument("--reason", default="", help="Rejection reason")
+
+    metrics_parser = subparsers.add_parser("metrics", help="Inspect VAD operational outcome metrics")
+    metrics_subparsers = metrics_parser.add_subparsers(dest="metrics_command")
+    metrics_autonomy_parser = metrics_subparsers.add_parser("autonomy", help="Compute autonomy and verification metrics")
+    metrics_autonomy_parser.add_argument("--db", default=".vad/control-plane/vad.sqlite3", help="SQLite database path")
+
+    audit_parser = subparsers.add_parser("audit", help="Independent operator audit tools")
+    audit_subparsers = audit_parser.add_subparsers(dest="audit_command")
+    audit_verify_parser = audit_subparsers.add_parser("verify-trail", help="Independently verify a run's authoritative audit trail")
+    audit_verify_parser.add_argument("--db", default=".vad/control-plane/vad.sqlite3", help="SQLite database path")
+    audit_verify_parser.add_argument("run_id", help="Run identifier to audit")
+    audit_verify_parser.add_argument("--key-dir", help="Optional local Ed25519 key directory for DSSE verification")
+    audit_verify_parser.add_argument("--commit-sha", help="Optional expected commit SHA for DSSE verification")
+
+    workflow_parser = subparsers.add_parser("workflow", help="Run governed end-to-end reference workflows")
+    workflow_subparsers = workflow_parser.add_subparsers(dest="workflow_command")
+    wf_vd_parser = workflow_subparsers.add_parser("verified-delivery", help="Run the 8-step Verified Delivery Flow")
+    wf_vd_parser.add_argument("--db", default=".vad/control-plane/vad.sqlite3", help="SQLite database path")
+    wf_vd_parser.add_argument("--run-id", required=True, help="Unique run identifier")
+    wf_vd_parser.add_argument("--eip-name", required=True, help="EIP name")
+    wf_vd_parser.add_argument("--request", required=True, help="Change request summary")
+    wf_vd_parser.add_argument("--risk", default="low", choices=["low", "medium", "high", "critical"], help="Risk tier")
+    wf_vd_parser.add_argument("--domain-tag", action="append", default=[], dest="domain_tags", help="Domain tag")
+    wf_vd_parser.add_argument("--builder", default="codex-builder-1", help="Builder actor")
+    wf_vd_parser.add_argument("--verifier", default="isolated-verifier-1", help="Independent verifier actor")
+    wf_vd_parser.add_argument("--approver", action="append", default=[], dest="human_approvers", help="Human release guardian approver")
+    wf_vd_parser.add_argument("--auth-ref", default=None, help="Explicit authorization reference for critical risk")
+    wf_vd_parser.add_argument("--memory-provider", default="null", choices=["null", "local"], help="Local memory provider mode")
+    wf_vd_parser.add_argument("--memory-path", default=None, help="Optional JSON path for local memory provider")
+    wf_vd_parser.add_argument("--key-dir", default=".vad/keys", help="Local Ed25519 key directory")
+
     args = parser.parse_args()
     
     if args.command == "eip":
@@ -1962,6 +2010,108 @@ def main():
             deploy_failure_demo_command(args)
         else:
             deploy_parser.print_help()
+    elif args.command == "lessons":
+        from vad.feedback.lesson_review import LessonReviewService
+        from vad.memory.contracts import LessonReviewStatus
+        from vad.server.db.store import ServerStore
+
+        store = ServerStore(Path(args.db))
+        service = LessonReviewService(store)
+        if args.lessons_command == "list":
+            status = LessonReviewStatus(args.status) if args.status else None
+            records = service.list_lessons(review_status=status)
+            print(json.dumps({"lessons": [r.model_dump(mode="json") for r in records]}, indent=2))
+        elif args.lessons_command == "approve":
+            try:
+                rec = service.approve_lesson(
+                    args.lesson_id,
+                    reviewer=args.reviewer,
+                    reviewer_role=args.role,
+                    note=args.note,
+                )
+            except (PermissionError, KeyError, ValueError) as exc:
+                print(f"Lesson approval failed: {exc}", file=sys.stderr)
+                sys.exit(1)
+            print(json.dumps({"lesson": rec.model_dump(mode="json")}, indent=2))
+        elif args.lessons_command == "reject":
+            try:
+                rec = service.reject_lesson(
+                    args.lesson_id,
+                    reviewer=args.reviewer,
+                    reviewer_role=args.role,
+                    reason=args.reason,
+                )
+            except (PermissionError, KeyError, ValueError) as exc:
+                print(f"Lesson rejection failed: {exc}", file=sys.stderr)
+                sys.exit(1)
+            print(json.dumps({"lesson": rec.model_dump(mode="json")}, indent=2))
+        else:
+            lessons_parser.print_help()
+    elif args.command == "metrics":
+        if args.metrics_command == "autonomy":
+            from vad.audit.metrics import AutonomyMetricsCalculator
+
+            report = AutonomyMetricsCalculator().compute_from_sqlite(args.db)
+            print(json.dumps(report.model_dump(mode="json"), indent=2))
+        else:
+            metrics_parser.print_help()
+    elif args.command == "audit":
+        if args.audit_command == "verify-trail":
+            from vad.audit.verify_trail import verify_run_audit_trail
+            from vad.server.db.store import ServerStore
+            from vad.signing.ed25519_local import LocalEd25519KeyProvider
+
+            store = ServerStore(Path(args.db))
+            key_provider = LocalEd25519KeyProvider(key_dir=args.key_dir) if args.key_dir else None
+            report = verify_run_audit_trail(
+                store,
+                args.run_id,
+                key_provider=key_provider,
+                expected_commit_sha=args.commit_sha,
+            )
+            print(json.dumps(report.model_dump(mode="json"), indent=2))
+            if not report.verified:
+                sys.exit(1)
+        else:
+            audit_parser.print_help()
+    elif args.command == "workflow":
+        if args.workflow_command == "verified-delivery":
+            from vad.contracts.models import RiskTier
+            from vad.memory.config import MemoryProviderConfig, MemoryProviderKind
+            from vad.memory.gateway import MemoryGateway
+            from vad.memory.providers.registry import create_memory_provider
+            from vad.server.db.store import ServerStore
+            from vad.signing.ed25519_local import LocalEd25519KeyProvider
+            from vad.workflows.verified_delivery import VerifiedDeliveryRequest, VerifiedDeliveryWorkflow
+
+            store = ServerStore(Path(args.db))
+            provider_kind = MemoryProviderKind(args.memory_provider)
+            mem_cfg = MemoryProviderConfig(provider=provider_kind, local_path=args.memory_path)
+            gateway = MemoryGateway(provider=create_memory_provider(mem_cfg))
+            key_provider = LocalEd25519KeyProvider(key_dir=args.key_dir)
+            workflow = VerifiedDeliveryWorkflow(
+                store=store,
+                memory_gateway=gateway,
+                key_provider=key_provider,
+            )
+            result = workflow.execute(
+                VerifiedDeliveryRequest(
+                    run_id=args.run_id,
+                    change_request=args.request,
+                    eip_name=args.eip_name,
+                    risk_tier=RiskTier(args.risk),
+                    domain_tags=args.domain_tags,
+                    builder_actor=args.builder,
+                    verifier_actor=args.verifier,
+                    human_approvers=args.human_approvers,
+                    explicit_authorization_ref=args.auth_ref,
+                )
+            )
+            print(json.dumps(result.model_dump(mode="json"), indent=2))
+            if not result.audit_report.verified:
+                sys.exit(1)
+        else:
+            workflow_parser.print_help()
     else:
         parser.print_help()
 

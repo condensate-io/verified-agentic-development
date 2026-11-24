@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 from vad.control_plane.clients import ClientHeartbeat, ClientManifest, ClientRuntimeStatus, ClientStatusSnapshot
 from vad.control_plane.events import ControlPlaneEvent, ControlPlaneEventKind, ControlPlaneEventStatus
+from vad.control_plane.leases import TaskLeaseStatus
 from vad.control_plane.work_items import WorkItemStatus
 from vad.server.api.work_items import WorkItemSchedulerService, WorkItemService, WorkItemTransitionResult, SchedulerDecisionResult
 from vad.server.db.store import ServerStore
@@ -120,14 +121,20 @@ class ClientRegistryService:
 
         marked_results: list[ClientStaleRecoveryResult] = []
         recovered_by_work_item: dict[str, WorkItemTransitionResult] = {}
+        prior_fences_by_work_item: dict[str, int] = {}
         recovery_events: list[ControlPlaneEvent] = []
 
         for snapshot, age in stale_snapshots:
             marked = self.store.mark_client_stale(snapshot.manifest.client_id)
             stale_event = self._append_stale_event(marked, age)
-            recovered, item_recovery_events = self._recover_stale_work_items(marked)
+            recovered, item_recovery_events, item_fences = self._recover_stale_work_items_with_fences(marked)
             for transition in recovered:
                 recovered_by_work_item[transition.work_item.work_item_id] = transition
+            for work_item_id, prior_fence in item_fences.items():
+                prior_fences_by_work_item[work_item_id] = max(
+                    prior_fences_by_work_item.get(work_item_id, 0),
+                    prior_fence,
+                )
             recovery_events.extend(item_recovery_events)
             marked_results.append(ClientStaleRecoveryResult(
                 snapshot=marked,
@@ -144,11 +151,15 @@ class ClientRegistryService:
                 transition = recovered_by_work_item[work_item_id]
                 if transition.status_code != 200:
                     continue
+                prior_fence = prior_fences_by_work_item.get(work_item_id)
+                next_token = self.store.next_fence_token(work_item_id)
+                min_fence = max(next_token, prior_fence + 1) if prior_fence is not None else next_token
                 decision = scheduler.schedule_work_item(
                     work_item_id,
                     actor="recovery-scheduler",
                     role="operator",
                     client_id="control-plane",
+                    min_fence_token=min_fence,
                 )
                 if decision.status_code == 200:
                     reassigned_by_work_item[work_item_id] = decision
@@ -204,15 +215,45 @@ class ClientRegistryService:
         self,
         snapshot: ClientStatusSnapshot,
     ) -> tuple[list[WorkItemTransitionResult], list[ControlPlaneEvent]]:
+        recovered, recovery_events, _ = self._recover_stale_work_items_with_fences(snapshot)
+        return recovered, recovery_events
+
+    def _recover_stale_work_items_with_fences(
+        self,
+        snapshot: ClientStatusSnapshot,
+    ) -> tuple[list[WorkItemTransitionResult], list[ControlPlaneEvent], dict[str, int]]:
         service = WorkItemService(self.store)
         recovered: list[WorkItemTransitionResult] = []
         recovery_events: list[ControlPlaneEvent] = []
+        prior_fences: dict[str, int] = {}
         for item in self.store.list_work_items(assigned_client_id=snapshot.manifest.client_id):
             if item.status not in RECOVERABLE_STALE_WORK_STATUSES:
                 continue
             if item.status == WorkItemStatus.REQUEUED:
                 continue
+
+            prior_fence: int | None = None
+            for candidate_task_id in dict.fromkeys(
+                cid for cid in (item.lease_id, item.work_item_id) if cid
+            ):
+                try:
+                    lease = self.store.load_task_lease(candidate_task_id)
+                except KeyError:
+                    continue
+                if lease.status == TaskLeaseStatus.ACTIVE:
+                    lease.status = TaskLeaseStatus.EXPIRED
+                    lease.release_reason = "client marked stale"
+                    self.store.save_task_lease(lease)
+                prior_fence = max(prior_fence or 0, lease.fence_token)
+
+            latest_cp = self.store.latest_checkpoint(item.run_id, work_item_id=item.work_item_id)
+            if latest_cp is not None:
+                prior_fence = max(prior_fence or 0, latest_cp.fence_token)
+            if prior_fence is not None:
+                prior_fences[item.work_item_id] = prior_fence
+
             previous_status = item.status.value
+            fence_note = f" (expired fence_token={prior_fence})" if prior_fence is not None else ""
             result = service.requeue(
                 item.work_item_id,
                 actor=snapshot.manifest.client_id,
@@ -220,7 +261,7 @@ class ClientRegistryService:
                 client_id=snapshot.manifest.client_id,
                 summary=(
                     f"Work item {item.work_item_id} requeued after stale client "
-                    f"{snapshot.manifest.display_name} abandoned {previous_status} work."
+                    f"{snapshot.manifest.display_name} abandoned {previous_status} work{fence_note}."
                 ),
             )
             if result.status_code != 200:
@@ -239,9 +280,9 @@ class ClientRegistryService:
                 evidence_digest=result.work_item.evidence_digest,
                 summary=(
                     f"Recovery requeued work item {result.work_item.work_item_id} "
-                    f"from stale client {snapshot.manifest.display_name}."
+                    f"from stale client {snapshot.manifest.display_name}{fence_note}."
                 ),
             )
             self.store.append_control_plane_event(recovery_event)
             recovery_events.append(recovery_event)
-        return recovered, recovery_events
+        return recovered, recovery_events, prior_fences

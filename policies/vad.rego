@@ -113,3 +113,149 @@ deny_deployment_rollback_without_approval {
     input.action == "deploy_rollback"
     not input.rollback_approval_ref
 }
+
+# ==============================================================================
+# Evidence-Driven Autonomy Matrix (input.action == "evaluate_release_autonomy")
+# ==============================================================================
+
+default deny_stale_evidence = false
+default deny_drift_detected = false
+default deny_insufficient_assurance = false
+default allow_autonomous_release = false
+default require_human_approval = false
+default require_restricted_authorization = false
+
+_autonomy_assurance_rank = {
+    "A1_BASIC": 1,
+    "A2_INDEPENDENT": 2,
+    "A3_ATTESTED": 3,
+    "A4_RESTRICTED": 4,
+}
+
+_autonomy_required_rank = {
+    "low": 1,
+    "medium": 2,
+    "high": 3,
+    "critical": 4,
+}
+
+deny_stale_evidence {
+    input.action == "evaluate_release_autonomy"
+    input.evidence_fresh != true
+}
+
+deny_drift_detected {
+    input.action == "evaluate_release_autonomy"
+    input.stage in ["drift", "runtime"]
+    input.drift_detected == true
+}
+
+deny_insufficient_assurance {
+    input.action == "evaluate_release_autonomy"
+    not _autonomy_assurance_rank[input.assurance_achieved]
+}
+
+deny_insufficient_assurance {
+    input.action == "evaluate_release_autonomy"
+    not _autonomy_required_rank[input.risk_tier]
+}
+
+deny_insufficient_assurance {
+    input.action == "evaluate_release_autonomy"
+    achieved := _autonomy_assurance_rank[input.assurance_achieved]
+    required := _autonomy_required_rank[input.risk_tier]
+    achieved < required
+}
+
+_deny_autonomy_drift_any_stage {
+    input.action == "evaluate_release_autonomy"
+    input.drift_detected == true
+}
+
+_deny_autonomy_unverified {
+    input.action == "evaluate_release_autonomy"
+    input.verification_passed == false
+}
+
+_deny_autonomy_self_approval {
+    input.action == "evaluate_release_autonomy"
+    is_string(input.builder_actor)
+    input.builder_actor != ""
+    is_string(input.verifier_actor)
+    input.verifier_actor != ""
+    input.risk_tier in ["medium", "high", "critical"]
+    input.builder_actor == input.verifier_actor
+}
+
+_deny_autonomy_self_approval {
+    input.action == "evaluate_release_autonomy"
+    is_string(input.builder_actor)
+    input.builder_actor != ""
+    approver := input.human_approvers[_]
+    approver == input.builder_actor
+}
+
+_deny_autonomy_invalid_stage {
+    input.action == "evaluate_release_autonomy"
+    not input.stage in ["build", "ci_cd", "deploy", "runtime", "drift"]
+}
+
+_autonomy_denied {
+    deny_stale_evidence
+}
+
+_autonomy_denied {
+    deny_drift_detected
+}
+
+_autonomy_denied {
+    deny_insufficient_assurance
+}
+
+_autonomy_denied {
+    _deny_autonomy_drift_any_stage
+}
+
+_autonomy_denied {
+    _deny_autonomy_unverified
+}
+
+_autonomy_denied {
+    _deny_autonomy_self_approval
+}
+
+_autonomy_denied {
+    _deny_autonomy_invalid_stage
+}
+
+allow_autonomous_release {
+    input.action == "evaluate_release_autonomy"
+    not _autonomy_denied
+    input.risk_tier == "low"
+    input.verification_passed == true
+}
+
+allow_autonomous_release {
+    input.action == "evaluate_release_autonomy"
+    not _autonomy_denied
+    input.risk_tier == "medium"
+    input.verification_passed == true
+    input.independent_verifier == true
+}
+
+require_human_approval {
+    input.action == "evaluate_release_autonomy"
+    not _autonomy_denied
+    input.risk_tier == "high"
+}
+
+require_restricted_authorization {
+    input.action == "evaluate_release_autonomy"
+    not _autonomy_denied
+    input.risk_tier == "critical"
+}
+
+allow {
+    input.action == "evaluate_release_autonomy"
+    allow_autonomous_release
+}

@@ -70,4 +70,10 @@ def create_app(sqlite_path: str = "audit/audit.db") -> FastAPI:
 
         return {"timeline": timeline}
 
+    @app.get("/metrics/autonomy")
+    def get_autonomy_metrics() -> Dict[str, Any]:
+        from vad.audit.metrics import AutonomyMetricsCalculator
+
+        return AutonomyMetricsCalculator().compute_from_sqlite(sqlite_path).model_dump(mode="json")
+
     return app

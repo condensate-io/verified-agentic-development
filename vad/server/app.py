@@ -154,7 +154,100 @@ class VADApi:
             return self._connectors_admin_service().register_connector(body or {})
         if (path.startswith("/connectors/") or path.startswith("/api/v1/connectors/")):
             return self._connector_action_response(path, method, body or {})
+        if path == "/release-decisions" and method == "GET":
+            query = parse_qs(parsed.query)
+            return self._release_decisions_response(run_id=query.get("run_id", [None])[0])
+        if path == "/lessons" and method == "GET":
+            query = parse_qs(parsed.query)
+            return self._lessons_list_response(review_status=query.get("review_status", [None])[0])
+        if path.startswith("/lessons/") and method == "POST":
+            return self._lessons_action_response(path, body or {})
+        if path.startswith("/checkpoints/") and method == "GET":
+            query = parse_qs(parsed.query)
+            return self._checkpoints_response(path, work_item_id=query.get("work_item_id", [None])[0])
+        if path == "/metrics/autonomy" and method == "GET":
+            return self._autonomy_metrics_response()
+        if path.startswith("/audit/verify-trail/") and method == "GET":
+            return self._audit_verify_trail_response(path)
         return 404, {"error": "not_found"}
+
+    def _release_decisions_response(self, *, run_id: str | None = None) -> tuple[int, dict[str, Any]]:
+        if self.db is None:
+            return 503, {"error": "service_unavailable", "message": "database not configured"}
+        decisions = self.db.list_release_decisions(run_id=run_id)
+        return 200, {"release_decisions": [d.model_dump(mode="json") for d in decisions]}
+
+    def _lessons_list_response(self, *, review_status: str | None = None) -> tuple[int, dict[str, Any]]:
+        if self.db is None:
+            return 503, {"error": "service_unavailable", "message": "database not configured"}
+        records = self.db.list_lesson_promotions(review_status=review_status)
+        return 200, {"lessons": [r.model_dump(mode="json") for r in records]}
+
+    def _lessons_action_response(self, path: str, body: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+        if self.db is None:
+            return 503, {"error": "service_unavailable", "message": "database not configured"}
+        from vad.feedback.lesson_review import LessonReviewService
+
+        parts = [unquote(p) for p in path.split("/") if p]
+        if len(parts) != 3 or parts[0] != "lessons":
+            return 404, {"error": "not_found"}
+        lesson_id, action = parts[1], parts[2]
+        reviewer = str(body.get("reviewer") or "").strip()
+        reviewer_role = str(body.get("reviewer_role") or "release_guardian").strip()
+        service = LessonReviewService(self.db)
+        try:
+            if action == "approve":
+                rec = service.approve_lesson(
+                    lesson_id,
+                    reviewer=reviewer,
+                    reviewer_role=reviewer_role,
+                    note=str(body.get("note") or ""),
+                )
+                return 200, {"lesson": rec.model_dump(mode="json")}
+            if action == "reject":
+                rec = service.reject_lesson(
+                    lesson_id,
+                    reviewer=reviewer,
+                    reviewer_role=reviewer_role,
+                    reason=str(body.get("reason") or ""),
+                )
+                return 200, {"lesson": rec.model_dump(mode="json")}
+        except PermissionError as exc:
+            return 403, {"error": "forbidden", "detail": str(exc)}
+        except KeyError:
+            return 404, {"error": "lesson_not_found", "lesson_id": lesson_id}
+        except ValueError as exc:
+            return 422, {"error": "invalid_request", "detail": str(exc)}
+        return 404, {"error": "not_found"}
+
+    def _checkpoints_response(self, path: str, *, work_item_id: str | None = None) -> tuple[int, dict[str, Any]]:
+        if self.db is None:
+            return 503, {"error": "service_unavailable", "message": "database not configured"}
+        parts = [unquote(p) for p in path.split("/") if p]
+        if len(parts) != 2 or parts[0] != "checkpoints":
+            return 404, {"error": "not_found"}
+        run_id = parts[1]
+        checkpoints = self.db.list_checkpoints(run_id=run_id, work_item_id=work_item_id)
+        return 200, {"run_id": run_id, "checkpoints": [cp.model_dump(mode="json") for cp in checkpoints]}
+
+    def _autonomy_metrics_response(self) -> tuple[int, dict[str, Any]]:
+        if self.db is None:
+            return 503, {"error": "service_unavailable", "message": "database not configured"}
+        from vad.audit.metrics import AutonomyMetricsCalculator
+
+        report = AutonomyMetricsCalculator().compute_from_sqlite(self.db.db_path)
+        return 200, report.model_dump(mode="json")
+
+    def _audit_verify_trail_response(self, path: str) -> tuple[int, dict[str, Any]]:
+        if self.db is None:
+            return 503, {"error": "service_unavailable", "message": "database not configured"}
+        from vad.audit.verify_trail import verify_run_audit_trail
+
+        parts = [unquote(p) for p in path.split("/") if p]
+        if len(parts) != 3 or parts[0] != "audit" or parts[1] != "verify-trail":
+            return 404, {"error": "not_found"}
+        report = verify_run_audit_trail(self.db, parts[2])
+        return (200 if report.verified else 422), report.model_dump(mode="json")
 
     def _connectors_admin_service(self) -> ConnectorsAdminService:
         return ConnectorsAdminService(db=self.db, registry=get_connector_registry())

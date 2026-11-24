@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -8,6 +9,8 @@ from pydantic import BaseModel, Field, field_validator
 
 from vad.control_plane.events import ControlPlaneEvent, ControlPlaneEventKind, ControlPlaneEventStatus
 from vad.control_plane.sdk import LocalControlPlaneClient
+from vad.control_plane.sessions import HostRole, HostSessionManager, HostSessionToken
+from vad.policy.decisions import PolicyDecision
 
 
 class GatewayToolRisk(str, Enum):
@@ -54,8 +57,11 @@ class GatewayToolVisibilityRequest(BaseModel):
     run_id: str | None = Field(default=None, max_length=160)
     role: str | None = Field(default=None, max_length=80)
     approved_high_risk_tools: tuple[str, ...] = ()
+    host_session: HostSessionToken | dict[str, Any] | None = None
+    work_item_id: str | None = Field(default=None, max_length=160)
+    min_fence_token: int | None = Field(default=None, ge=1)
 
-    @field_validator("client_id", "run_id", "role")
+    @field_validator("client_id", "run_id", "role", "work_item_id")
     @classmethod
     def identifiers_must_be_safe(cls, value: str | None) -> str | None:
         if value is None:
@@ -222,11 +228,268 @@ def mcp_tool_definitions(request: GatewayToolVisibilityRequest | None = None) ->
     return filter_gateway_tools(request).to_mcp_tools()
 
 
-def authorize_gateway_tool_call(tool_name: str, request: GatewayToolVisibilityRequest | None = None) -> GatewayToolAuditRecord:
-    visibility = request or GatewayToolVisibilityRequest(role="observer")
+GATEWAY_TOOL_ACTIONS: dict[str, str] = {
+    "run_proofs": "submit_verification_result",
+    "provider_test": "submit_verification_result",
+    "retro_analyze": "promote_lesson",
+    "submit_retrospective": "promote_lesson",
+    "repo_patch": "submit_diff_proposal",
+    "repo_run": "submit_diff_proposal",
+    "sign_verify": "approve_release",
+    "work_intake_discover": "discover_work",
+    "work_intake_claim": "claim_work",
+    "work_intake_report_progress": "report_progress",
+    "work_intake_submit_proof": "submit_builder_claim",
+    "work_intake_escalate": "escalate",
+}
+
+
+def _parse_host_session_token(
+    token: HostSessionToken | dict[str, Any] | None,
+) -> tuple[HostSessionToken | None, str | None]:
+    if token is None:
+        return None, "host session token is required"
+    if isinstance(token, HostSessionToken):
+        return token, None
+    if isinstance(token, dict):
+        try:
+            return HostSessionToken.model_validate(token), None
+        except Exception as exc:
+            return None, f"invalid host session token: {exc}"
+    return None, "host session token must be a HostSessionToken or dict"
+
+
+def _effective_gateway_role(tool: GatewayToolDefinition | None, host_role: HostRole) -> str:
+    if (
+        tool is not None
+        and tool.required_role == "developer"
+        and host_role in (HostRole.BUILDER, HostRole.VERIFIER)
+    ):
+        return "developer"
+    return host_role.value
+
+
+def _role_matches_claim(requested_role: str | None, claim_role: HostRole) -> bool:
+    if requested_role is None:
+        return True
+    if requested_role == claim_role.value:
+        return True
+    return requested_role == "developer" and claim_role in (HostRole.BUILDER, HostRole.VERIFIER)
+
+
+def authorize_host_session(
+    session_manager: HostSessionManager,
+    token: HostSessionToken | dict[str, Any],
+    *,
+    action: str,
+    work_item_id: str | None = None,
+    min_fence_token: int | None = None,
+    client_id: str | None = None,
+    now: datetime | None = None,
+) -> PolicyDecision:
+    """Verify a scoped host session token and enforce role-action isolation."""
+    if session_manager is None:
+        return PolicyDecision(allow=False, denials=["session manager is not configured"])
+
+    parsed, parse_err = _parse_host_session_token(token)
+    if parsed is None:
+        return PolicyDecision(allow=False, denials=[parse_err or "invalid host session token"])
+
+    ok, verify_err = session_manager.verify(
+        parsed,
+        now=now,
+        expected_work_item_id=work_item_id,
+        min_fence_token=min_fence_token,
+    )
+    if not ok:
+        return PolicyDecision(allow=False, denials=[verify_err or "host session verification failed"])
+
+    if client_id is not None and parsed.claims.client_id != client_id:
+        return PolicyDecision(
+            allow=False,
+            denials=[f"client_id mismatch: expected {client_id}, got {parsed.claims.client_id}"],
+        )
+
+    allowed, role_err = session_manager.assert_role_action_allowed(parsed.claims, action)
+    if not allowed:
+        return PolicyDecision(
+            allow=False,
+            denials=[role_err or f"action '{action}' is not allowed for role '{parsed.claims.role.value}'"],
+        )
+
+    return PolicyDecision(
+        allow=True,
+        reasons=[
+            f"host session '{parsed.claims.session_id}' ({parsed.claims.host_type}:{parsed.claims.role.value}) authorized for '{action}'"
+        ],
+    )
+
+
+def _authorize_with_host_session(
+    *,
+    tool_name: str,
+    tool: GatewayToolDefinition | None,
+    visibility: GatewayToolVisibilityRequest,
+    session_manager: HostSessionManager | None,
+    token_input: HostSessionToken | dict[str, Any],
+    action: str | None,
+    work_item_id: str | None,
+    min_fence_token: int | None,
+    now: datetime | None,
+) -> GatewayToolAuditRecord:
+    required_role = tool.required_role if tool is not None else "unknown"
+    if session_manager is None:
+        return GatewayToolAuditRecord(
+            tool_name=tool_name,
+            client_id=visibility.client_id,
+            run_id=visibility.run_id,
+            requested_role=visibility.role,
+            required_role=required_role,
+            visible=False,
+            reason="session manager is not configured",
+        )
+
+    parsed, parse_err = _parse_host_session_token(token_input)
+    if parsed is None:
+        return GatewayToolAuditRecord(
+            tool_name=tool_name,
+            client_id=visibility.client_id,
+            run_id=visibility.run_id,
+            requested_role=visibility.role,
+            required_role=required_role,
+            visible=False,
+            reason=parse_err or "invalid host session token",
+        )
+
+    claims = parsed.claims
+    if visibility.client_id is not None and visibility.client_id != claims.client_id:
+        return GatewayToolAuditRecord(
+            tool_name=tool_name,
+            client_id=visibility.client_id,
+            run_id=visibility.run_id,
+            requested_role=claims.role.value,
+            required_role=required_role,
+            visible=False,
+            reason=f"client_id mismatch: expected {visibility.client_id}, got {claims.client_id}",
+        )
+
+    if not _role_matches_claim(visibility.role, claims.role):
+        return GatewayToolAuditRecord(
+            tool_name=tool_name,
+            client_id=claims.client_id,
+            run_id=visibility.run_id,
+            requested_role=visibility.role,
+            required_role=required_role,
+            visible=False,
+            reason=f"role mismatch: expected {visibility.role}, got {claims.role.value}",
+        )
+
+    if action is not None or tool_name in GATEWAY_TOOL_ACTIONS or tool is None or tool.required_role != "observer":
+        effective_action = action or GATEWAY_TOOL_ACTIONS.get(tool_name, tool_name)
+        decision = authorize_host_session(
+            session_manager,
+            parsed,
+            action=effective_action,
+            work_item_id=work_item_id,
+            min_fence_token=min_fence_token,
+            now=now,
+        )
+        if not decision.allow:
+            return GatewayToolAuditRecord(
+                tool_name=tool_name,
+                client_id=claims.client_id,
+                run_id=visibility.run_id,
+                requested_role=claims.role.value,
+                required_role=required_role,
+                visible=False,
+                reason=decision.denials[0] if decision.denials else "host session denied",
+            )
+    else:
+        ok, err = session_manager.verify(
+            parsed,
+            now=now,
+            expected_work_item_id=work_item_id,
+            min_fence_token=min_fence_token,
+        )
+        if not ok:
+            return GatewayToolAuditRecord(
+                tool_name=tool_name,
+                client_id=claims.client_id,
+                run_id=visibility.run_id,
+                requested_role=claims.role.value,
+                required_role=required_role,
+                visible=False,
+                reason=err or "host session verification failed",
+            )
+
+    if tool is None:
+        return GatewayToolAuditRecord(
+            tool_name=tool_name,
+            client_id=claims.client_id,
+            run_id=visibility.run_id,
+            requested_role=claims.role.value,
+            required_role="unknown",
+            visible=False,
+            reason="unknown tool",
+        )
+
+    effective_role = _effective_gateway_role(tool, claims.role)
+    allowed, reason = _tool_visible(tool, effective_role, visibility)
+    return GatewayToolAuditRecord(
+        tool_name=tool.name,
+        client_id=claims.client_id,
+        run_id=visibility.run_id,
+        requested_role=claims.role.value,
+        required_role=tool.required_role,
+        visible=allowed,
+        reason=reason,
+    )
+
+
+def authorize_gateway_tool_call(
+    tool_name: str,
+    request: GatewayToolVisibilityRequest | None = None,
+    *,
+    session_manager: HostSessionManager | None = None,
+    host_session: HostSessionToken | dict[str, Any] | None = None,
+    require_host_session: bool = False,
+    action: str | None = None,
+    work_item_id: str | None = None,
+    min_fence_token: int | None = None,
+    now: datetime | None = None,
+) -> GatewayToolAuditRecord:
+    visibility = request or GatewayToolVisibilityRequest(role=None if host_session is not None else "observer")
     registry = gateway_tool_registry()
     tool = registry.get(tool_name)
+    token_input = host_session if host_session is not None else visibility.host_session
+    eff_work_item_id = work_item_id if work_item_id is not None else visibility.work_item_id
+    eff_min_fence = min_fence_token if min_fence_token is not None else visibility.min_fence_token
+
+    if token_input is not None:
+        return _authorize_with_host_session(
+            tool_name=tool_name,
+            tool=tool,
+            visibility=visibility,
+            session_manager=session_manager,
+            token_input=token_input,
+            action=action,
+            work_item_id=eff_work_item_id,
+            min_fence_token=eff_min_fence,
+            now=now,
+        )
+
     role = visibility.role or "observer"
+    if require_host_session:
+        return GatewayToolAuditRecord(
+            tool_name=tool_name,
+            client_id=visibility.client_id,
+            run_id=visibility.run_id,
+            requested_role=role,
+            required_role=tool.required_role if tool is not None else "unknown",
+            visible=False,
+            reason="host session token is required",
+        )
+
     if tool is None:
         return GatewayToolAuditRecord(
             tool_name=tool_name,
@@ -247,6 +510,233 @@ def authorize_gateway_tool_call(tool_name: str, request: GatewayToolVisibilityRe
         visible=allowed,
         reason=reason,
     )
+
+
+class MCPGateway:
+    """Governed MCP gateway enforcing tool visibility and scoped host session isolation."""
+
+    def __init__(
+        self,
+        *,
+        session_manager: HostSessionManager | None = None,
+        require_host_session: bool = False,
+    ) -> None:
+        self.session_manager = session_manager
+        self.require_host_session = require_host_session
+
+    @staticmethod
+    def _coerce_visibility_request(
+        request: GatewayToolVisibilityRequest | dict[str, Any] | None,
+    ) -> tuple[GatewayToolVisibilityRequest, str | None, int | None]:
+        if request is None:
+            return GatewayToolVisibilityRequest(role=None), None, None
+        if isinstance(request, GatewayToolVisibilityRequest):
+            return request, None, None
+        payload = request.get("arguments") if isinstance(request.get("arguments"), dict) else request
+        approved = payload.get("approved_high_risk_tools") or ()
+        visibility = GatewayToolVisibilityRequest(
+            client_id=payload.get("client_id"),
+            run_id=payload.get("run_id"),
+            role=payload.get("role") or payload.get("client_role"),
+            approved_high_risk_tools=tuple(approved),
+            host_session=payload.get("host_session") if "host_session" in payload else request.get("host_session"),
+            work_item_id=payload.get("work_item_id"),
+            min_fence_token=payload.get("min_fence_token"),
+        )
+        req_fence = payload.get("fence_token")
+        parsed_fence = int(req_fence) if req_fence is not None else None
+        req_action = payload.get("action") or request.get("action")
+        return visibility, req_action, parsed_fence
+
+    def authorize_session(
+        self,
+        token: HostSessionToken | dict[str, Any] | None,
+        *,
+        action: str,
+        work_item_id: str | None = None,
+        min_fence_token: int | None = None,
+        client_id: str | None = None,
+        now: datetime | None = None,
+    ) -> PolicyDecision:
+        if token is None:
+            if self.require_host_session:
+                return PolicyDecision(allow=False, denials=["host session token is required"])
+            return PolicyDecision(allow=True, reasons=["host session omitted and not required"])
+        if self.session_manager is None:
+            return PolicyDecision(allow=False, denials=["session manager is not configured"])
+        return authorize_host_session(
+            self.session_manager,
+            token,
+            action=action,
+            work_item_id=work_item_id,
+            min_fence_token=min_fence_token,
+            client_id=client_id,
+            now=now,
+        )
+
+    def authorize_tool_call(
+        self,
+        tool_name: str,
+        request: GatewayToolVisibilityRequest | dict[str, Any] | None = None,
+        *,
+        host_session: HostSessionToken | dict[str, Any] | None = None,
+        action: str | None = None,
+        work_item_id: str | None = None,
+        min_fence_token: int | None = None,
+        now: datetime | None = None,
+    ) -> GatewayToolAuditRecord:
+        visibility, req_action, req_fence = self._coerce_visibility_request(request)
+        token_input = host_session if host_session is not None else visibility.host_session
+        if token_input is not None and req_fence is not None:
+            parsed, parse_err = _parse_host_session_token(token_input)
+            if parsed is None:
+                return GatewayToolAuditRecord(
+                    tool_name=tool_name,
+                    client_id=visibility.client_id,
+                    run_id=visibility.run_id,
+                    requested_role=visibility.role,
+                    required_role="unknown",
+                    visible=False,
+                    reason=parse_err or "invalid host session token",
+                )
+            if req_fence != parsed.claims.fence_token:
+                return GatewayToolAuditRecord(
+                    tool_name=tool_name,
+                    client_id=parsed.claims.client_id,
+                    run_id=visibility.run_id,
+                    requested_role=parsed.claims.role.value,
+                    required_role="unknown",
+                    visible=False,
+                    reason=f"stale or mismatched fence token: request {req_fence} != session {parsed.claims.fence_token}",
+                )
+        if token_input is None and isinstance(request, dict) and visibility.role is None:
+            visibility = visibility.model_copy(update={"role": "observer"})
+        return authorize_gateway_tool_call(
+            tool_name,
+            visibility,
+            session_manager=self.session_manager,
+            host_session=token_input,
+            require_host_session=self.require_host_session,
+            action=action or req_action,
+            work_item_id=work_item_id,
+            min_fence_token=min_fence_token,
+            now=now,
+        )
+
+    def validate_tool_call(
+        self,
+        request: dict[str, Any],
+        *,
+        min_fence_token: int | None = None,
+        now: datetime | None = None,
+    ) -> PolicyDecision:
+        tool_name = request.get("name") or request.get("tool") or request.get("action") or ""
+        try:
+            visibility, req_action, req_fence = self._coerce_visibility_request(request)
+        except Exception as exc:
+            return PolicyDecision(allow=False, denials=[f"invalid tool call request: {exc}"])
+
+        token_input = visibility.host_session
+        eff_min_fence = min_fence_token if min_fence_token is not None else visibility.min_fence_token
+        effective_action = req_action or GATEWAY_TOOL_ACTIONS.get(tool_name, tool_name)
+
+        if token_input is None:
+            if self.require_host_session:
+                return PolicyDecision(allow=False, denials=["host session token is required"])
+            if tool_name in gateway_tool_registry():
+                audit = authorize_gateway_tool_call(tool_name, visibility)
+                if not audit.visible:
+                    return PolicyDecision(allow=False, denials=[audit.reason])
+            return PolicyDecision(allow=True, reasons=["host session omitted and not required"])
+
+        if self.session_manager is None:
+            return PolicyDecision(allow=False, denials=["session manager is not configured"])
+
+        parsed, parse_err = _parse_host_session_token(token_input)
+        if parsed is None:
+            return PolicyDecision(allow=False, denials=[parse_err or "invalid host session token"])
+
+        if req_fence is not None and req_fence != parsed.claims.fence_token:
+            return PolicyDecision(
+                allow=False,
+                denials=[f"stale or mismatched fence token: request {req_fence} != session {parsed.claims.fence_token}"],
+            )
+
+        if not _role_matches_claim(visibility.role, parsed.claims.role):
+            return PolicyDecision(
+                allow=False,
+                denials=[f"role mismatch: expected {visibility.role}, got {parsed.claims.role.value}"],
+            )
+
+        tool = gateway_tool_registry().get(tool_name)
+        if req_action is None and tool is not None and tool.required_role == "observer":
+            ok, verify_err = self.session_manager.verify(
+                parsed,
+                now=now,
+                expected_work_item_id=visibility.work_item_id,
+                min_fence_token=eff_min_fence,
+            )
+            if not ok:
+                return PolicyDecision(allow=False, denials=[verify_err or "host session verification failed"])
+            if visibility.client_id is not None and parsed.claims.client_id != visibility.client_id:
+                return PolicyDecision(
+                    allow=False,
+                    denials=[f"client_id mismatch: expected {visibility.client_id}, got {parsed.claims.client_id}"],
+                )
+            return PolicyDecision(
+                allow=True,
+                reasons=[f"host session '{parsed.claims.session_id}' authorized for observer tool '{tool_name}'"],
+            )
+
+        return authorize_host_session(
+            self.session_manager,
+            parsed,
+            action=effective_action,
+            work_item_id=visibility.work_item_id,
+            min_fence_token=eff_min_fence,
+            client_id=visibility.client_id,
+            now=now,
+        )
+
+    def filter_tools(
+        self,
+        request: GatewayToolVisibilityRequest | dict[str, Any] | None = None,
+        *,
+        host_session: HostSessionToken | dict[str, Any] | None = None,
+        now: datetime | None = None,
+    ) -> GatewayToolVisibilityResult:
+        visibility, _, _ = self._coerce_visibility_request(request)
+        token_input = host_session if host_session is not None else visibility.host_session
+        if token_input is None:
+            if self.require_host_session:
+                audit = tuple(
+                    GatewayToolAuditRecord(
+                        tool_name=tool.name,
+                        client_id=visibility.client_id,
+                        run_id=visibility.run_id,
+                        requested_role=visibility.role or "observer",
+                        required_role=tool.required_role,
+                        visible=False,
+                        reason="host session token is required",
+                    )
+                    for tool in _GATEWAY_TOOLS
+                )
+                return GatewayToolVisibilityResult(tools=(), audit=audit)
+            return filter_gateway_tools(visibility)
+
+        visible: list[GatewayToolDefinition] = []
+        audit: list[GatewayToolAuditRecord] = []
+        for tool in _GATEWAY_TOOLS:
+            record = self.authorize_tool_call(
+                tool.name,
+                visibility,
+                host_session=token_input,
+                now=now,
+            )
+            if record.visible:
+                visible.append(tool)
+            audit.append(record)
+        return GatewayToolVisibilityResult(tools=tuple(visible), audit=tuple(audit))
 
 
 def high_risk_tools() -> tuple[str, ...]:

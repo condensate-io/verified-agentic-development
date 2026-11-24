@@ -6,6 +6,71 @@ class RiskTier(str, Enum):
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
+    CRITICAL = "critical"
+
+
+class AssuranceLevel(str, Enum):
+    A1_BASIC = "A1_BASIC"
+    A2_INDEPENDENT = "A2_INDEPENDENT"
+    A3_ATTESTED = "A3_ATTESTED"
+    A4_RESTRICTED = "A4_RESTRICTED"
+
+
+_ASSURANCE_RANK = {
+    AssuranceLevel.A1_BASIC: 1,
+    AssuranceLevel.A2_INDEPENDENT: 2,
+    AssuranceLevel.A3_ATTESTED: 3,
+    AssuranceLevel.A4_RESTRICTED: 4,
+}
+
+_RISK_DEFAULT_ASSURANCE = {
+    RiskTier.LOW: AssuranceLevel.A1_BASIC,
+    RiskTier.MEDIUM: AssuranceLevel.A2_INDEPENDENT,
+    RiskTier.HIGH: AssuranceLevel.A3_ATTESTED,
+    RiskTier.CRITICAL: AssuranceLevel.A4_RESTRICTED,
+}
+
+
+def default_assurance_for_risk(risk_tier: RiskTier) -> AssuranceLevel:
+    """Return the default assurance level required for a given risk tier."""
+    return _RISK_DEFAULT_ASSURANCE[risk_tier]
+
+
+class FreshnessPolicy(BaseModel):
+    max_evidence_age_seconds: int = Field(default=14400, ge=1)
+    require_head_commit_match: bool = True
+    require_tree_hash_match: bool = True
+    require_env_digest_match: bool = False
+    invalidate_on_dependency_change: bool = True
+
+
+_RISK_DEFAULT_FRESHNESS_PARAMS = {
+    RiskTier.LOW: {
+        "max_evidence_age_seconds": 86400,
+        "require_tree_hash_match": False,
+        "require_env_digest_match": False,
+    },
+    RiskTier.MEDIUM: {
+        "max_evidence_age_seconds": 14400,
+        "require_tree_hash_match": True,
+        "require_env_digest_match": False,
+    },
+    RiskTier.HIGH: {
+        "max_evidence_age_seconds": 3600,
+        "require_tree_hash_match": True,
+        "require_env_digest_match": True,
+    },
+    RiskTier.CRITICAL: {
+        "max_evidence_age_seconds": 900,
+        "require_tree_hash_match": True,
+        "require_env_digest_match": True,
+    },
+}
+
+
+def default_freshness_for_risk(risk_tier: RiskTier) -> FreshnessPolicy:
+    """Return the default freshness policy for a given risk tier."""
+    return FreshnessPolicy(**_RISK_DEFAULT_FRESHNESS_PARAMS[risk_tier])
 
 class AutonomyTier(str, Enum):
     MANUAL = "manual"
@@ -32,6 +97,8 @@ class ProofObligation(BaseModel):
     id: str
     kind: ProofKind
     description: str
+    min_assurance_level: Optional[AssuranceLevel] = None
+    independent_execution_required: bool = False
 
 class Invariants(BaseModel):
     security: List[str] = Field(default_factory=list)
@@ -82,9 +149,29 @@ class EIP(BaseModel):
     model_budget: ModelBudget
     release_requirements: ReleaseRequirements
     telemetry_requirements: TelemetryRequirements
+    assurance_level: Optional[AssuranceLevel] = None
+    freshness_policy: Optional[FreshnessPolicy] = None
+
+    def effective_assurance_level(self) -> AssuranceLevel:
+        """Return explicit assurance level or the default for this EIP's risk tier."""
+        return self.assurance_level or default_assurance_for_risk(self.risk_tier)
+
+    def effective_freshness_policy(self) -> FreshnessPolicy:
+        """Return explicit freshness policy or the default for this EIP's risk tier."""
+        return self.freshness_policy or default_freshness_for_risk(self.risk_tier)
 
     @model_validator(mode="after")
     def require_telemetry_for_release(self):
         if self.release_requirements.required and not self.telemetry_requirements.required:
             raise ValueError("release requires telemetry requirements")
+        return self
+
+    @model_validator(mode="after")
+    def forbid_critical_assurance_downgrade(self):
+        if (
+            self.risk_tier == RiskTier.CRITICAL
+            and self.assurance_level is not None
+            and _ASSURANCE_RANK[self.assurance_level] < _ASSURANCE_RANK[AssuranceLevel.A4_RESTRICTED]
+        ):
+            raise ValueError("critical risk_tier cannot downgrade assurance_level below A4_RESTRICTED")
         return self

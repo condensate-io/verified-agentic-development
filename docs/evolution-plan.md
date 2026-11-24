@@ -167,3 +167,111 @@ Start the next tracker with Track A. The smallest complete slice is:
 That slice closes the largest central-orchestrator gap while reusing the
 current SQLite ledger, client registry, policy checks, task leases, dashboard
 projection, and WSL/Docker verification boundary.
+
+---
+
+## Next-Stage Architecture: Evidence-Driven Autonomy & Memory-Agnostic Control Plane
+
+With the local central-orchestrator baseline (durable `work_items`, scheduler,
+run/task state machine, plugin inventory and writers, diff proposals, operator
+intent persistence, and stale-client recovery) in place, VAD's next evolution
+focuses on three priorities and one end-to-end reference milestone.
+
+### Three-Layer Independence
+
+VAD governs agent execution hosts and consumes interchangeable memory providers
+without depending on any specific model vendor, host runtime, or memory engine:
+
+- **Agent execution hosts:** Codex, Claude Code, Cursor, VS Code, Windsurf,
+  OpenCode, Generic MCP/A2A, and custom domain agents. VAD governs them rather
+  than competing for model execution.
+- **VAD control plane (authoritative):** intent management (EIPs), agent
+  orchestration, proof obligations, independent verification, policy
+  enforcement, release governance, authoritative evidence ledger, and durable
+  execution state.
+- **Memory Provider Interface (interchangeable, advisory only):** versioned
+  contracts, capability discovery, configurable transport (`http`, `mcp`, or
+  `both`), and conformance tests supporting `Null`, `Local`, `Condensate Core`
+  (reference implementation with advanced optional capabilities), `Mem0`,
+  `Graphiti`, and arbitrary external HTTP/MCP memory target endpoints.
+
+### Authoritative Evidence vs. Interchangeable Memory
+
+VAD remains the sole authority for verification and governance:
+
+- **VAD-owned (non-interchangeable):** Executable Intent Packages, proof
+  obligations, verification results, policy decisions, approval records,
+  execution state, and the authoritative evidence ledger.
+- **Memory-provider-owned (interchangeable, advisory):** historical knowledge,
+  semantic retrieval, inferred lessons learned, and context consolidation.
+
+A memory provider cannot alter a verification result, grant an approval, or
+modify the authoritative evidence ledger. VAD operates cleanly without optional
+memory capabilities or external memory services.
+
+### Priority 1: Measurable Verification & Evidence-Driven Autonomy
+
+- Upgrade EIP contracts with `critical` risk tier, explicit assurance levels
+  (`A1_BASIC` through `A4_RESTRICTED`), and evidence freshness policies
+  (commit/tree pinning, environment digests, and expiry TTLs).
+- Enforce independent isolated verification so builders never self-verify or
+  self-approve, replacing default hardcoded HMAC signing with auto-generated
+  local Ed25519 keypairs behind a pluggable key provider.
+- Replace static automation tiers with a Risk × Evidence Autonomy Matrix
+  evaluated across `build`, `ci_cd`, `deploy`, `runtime`, and `drift` stages:
+  - `low`: autonomous merge after checks;
+  - `medium`: independent isolated verification required;
+  - `high`: independent verification plus human approval required;
+  - `critical`: restricted execution with explicit operator authorization and
+    dual sign-off.
+- Measure operational outcomes: autonomous safe pass-through rate, escaped
+  defects, verification false positives, recovery success rate, human review
+  time, and cost per accepted change.
+
+### Priority 2: Closed Learning Loop via Memory Provider Interface
+
+- Keep **observed facts** (immutable projections linked to authoritative
+  evidence digests) strictly separate from **inferred lessons** (candidate
+  recommendations requiring explicit human review before promotion to policy or
+  default proof obligations).
+- Publish verified outcomes, rejected changes, and incident facts to the
+  configured memory provider, and retrieve advisory context and approved
+  lessons during intent assessment and proof planning.
+
+### Priority 3: Reliable Cross-Host Orchestration
+
+- Preserve the local-first model while adding monotonic lease fencing tokens,
+  persisted idempotency keys, durable stage checkpoints, scoped cross-host role
+  isolation tokens, and crash/host-failure recovery.
+- Introduce optional operator-hosted remote workers and enterprise controls as
+  opt-in contracts without requiring hosted SaaS.
+
+### Reference Milestone: Verified Delivery Flow
+
+1. Receive a change request and create an EIP (enriched with advisory history).
+2. Map requirements and approved lessons to executable proof obligations.
+3. Assign construction to an agent host with fenced lease and checkpoints.
+4. Run independent verification in an isolated environment with freshness checks.
+5. Evaluate policy and autonomy rules to decide required approvals.
+6. Release the approved change with a linked authoritative evidence record.
+7. Publish observed facts and candidate lessons to the memory provider.
+8. Retrieve approved lessons when a similar task arrives.
+
+The milestone succeeds when this flow completes across all risk tiers, survives
+injected host/server/drift/memory failures, and passes independent operator
+audit verification from the authoritative ledger alone.
+
+### Platform Trajectory & Hierarchical Intent Investigation
+
+- **Evolution stages:** (01) Verified agentic development → (02) Verified
+  software delivery → (03) Autonomous software engineering → (04) Continuous
+  verified operations (incident-triggered EIP lifecycle).
+- **Platform scope:** Deliver Verified Software Delivery (Scope A) first while
+  keeping core contracts decoupled behind domain adapter seams so general
+  autonomous agent control (Scope B: operational, infrastructure, business, and
+  compliance agents) extends cleanly without core rewrites.
+- **Next design investigation:** Evaluate a Hierarchical Intent Model
+  (`Strategic Objective → Programme → Engineering Objective → EIP → Task → Proof Obligation → Evidence`)
+  keeping `EIP` as the atomic verification contract while enabling multi-EIP
+  programme decomposition and rollup verification.
+

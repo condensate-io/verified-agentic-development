@@ -19,7 +19,13 @@ def normalize_eip(eip: EIP) -> dict[str, Any]:
 
     data["proof_obligations"] = sorted(
         data["proof_obligations"],
-        key=lambda item: (item["id"], item["kind"], item["description"]),
+        key=lambda item: (
+            item["id"],
+            item["kind"],
+            item["description"],
+            item.get("min_assurance_level") or "",
+            bool(item.get("independent_execution_required", False)),
+        ),
     )
     data["tool_permissions"]["allowed"] = _sorted_scalars(data["tool_permissions"]["allowed"])
     data["tool_permissions"]["denied"] = _sorted_scalars(data["tool_permissions"]["denied"])

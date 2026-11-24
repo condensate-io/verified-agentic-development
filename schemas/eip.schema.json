@@ -12,7 +12,7 @@
     },
     "risk_tier": {
       "type": "string",
-      "enum": ["low", "medium", "high"]
+      "enum": ["low", "medium", "high", "critical"]
     },
     "autonomy_tier": {
       "type": "string",
@@ -52,7 +52,12 @@
             "type": "string",
             "enum": ["unit", "property", "contract", "security", "performance", "policy", "release", "telemetry", "manual_gate"]
           },
-          "description": { "type": "string" }
+          "description": { "type": "string" },
+          "min_assurance_level": {
+            "type": ["string", "null"],
+            "enum": ["A1_BASIC", "A2_INDEPENDENT", "A3_ATTESTED", "A4_RESTRICTED", null]
+          },
+          "independent_execution_required": { "type": "boolean" }
         },
         "required": ["id", "kind", "description"]
       }
@@ -111,6 +116,20 @@
         "signals": { "type": "array", "items": { "type": "string" } }
       },
       "required": ["required", "signals"]
+    },
+    "assurance_level": {
+      "type": ["string", "null"],
+      "enum": ["A1_BASIC", "A2_INDEPENDENT", "A3_ATTESTED", "A4_RESTRICTED", null]
+    },
+    "freshness_policy": {
+      "type": ["object", "null"],
+      "properties": {
+        "max_evidence_age_seconds": { "type": "integer", "minimum": 1 },
+        "require_head_commit_match": { "type": "boolean" },
+        "require_tree_hash_match": { "type": "boolean" },
+        "require_env_digest_match": { "type": "boolean" },
+        "invalidate_on_dependency_change": { "type": "boolean" }
+      }
     }
   },
   "required": [

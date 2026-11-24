@@ -102,5 +102,8 @@ def test_schema_and_model_required_fields_are_aligned():
     schema_path = Path(__file__).resolve().parents[1] / "schemas" / "eip.schema.json"
     schema = json.loads(schema_path.read_text())
 
-    assert set(schema["required"]) == set(EIP.model_fields.keys())
+    required_model_fields = {
+        name for name, field in EIP.model_fields.items() if field.is_required()
+    }
+    assert set(schema["required"]) == required_model_fields
     assert set(schema["properties"].keys()) == set(EIP.model_fields.keys())

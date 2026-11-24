@@ -531,3 +531,16 @@ The current local distribution is local only:
 - no committed or generated secret-bearing config.
 
 All Level 4 control-plane behavior must run with local filesystem/SQLite state, bind to localhost by default, and pass disposable Docker verification.
+
+## Schema v12 Reliability, Autonomy & Audit Extensions
+
+Local SQLite schema version 12 extends the control plane with:
+
+- **Fenced Task Leases (`task_leases.fence_token`)**: monotonic lease tokens incremented on recovery/reassignment so stale or zombie host writes are rejected with `409 Conflict`.
+- **Idempotency Ledger (`idempotency_records`)**: canonical request-hash deduplication replaying identical retries and failing closed on payload conflicts.
+- **Durable Stage Checkpoints (`run_checkpoints`)**: persisted checkpoints across all 8 Verified Delivery Flow stages (`GET /checkpoints/{run_id}`).
+- **Evidence-Driven Release Decisions (`release_decisions`)**: persisted Risk × Assurance × Freshness policy outcomes (`GET /release-decisions`).
+- **Human Lesson Promotion Gate (`lesson_promotions`)**: authoritative review state separating observed facts from candidate inferred lessons (`GET /lessons`, `POST /lessons/{lesson_id}/approve|reject`, `vad lessons`).
+- **Operational Outcome Metrics (`delivery_outcomes`, `defect_links`)**: autonomous safe pass-through rate, escaped defects, verification false positives, recovery success rate, human review latency, and cost per accepted change (`GET /metrics/autonomy`, `vad metrics autonomy`).
+- **Independent Audit Trail Verification & Reference Workflow**: `GET /audit/verify-trail/{run_id}`, `vad audit verify-trail <run_id>`, and `vad workflow verified-delivery` (see `docs/verified-delivery-flow.md`).
+
