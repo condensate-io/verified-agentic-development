@@ -11,10 +11,11 @@ def read(path: str) -> str:
 def test_readme_distinguishes_local_level3_from_enterprise_level4():
     text = read("README.md")
 
-    assert "Level 2 reference implementation with an offline Level 3 demonstrator" in text
-    assert "does not deploy to live cloud or production infrastructure" in text
-    assert "does not provide an enterprise-hosted Level 4 control plane" in text
-    assert "additional live providers remain planned" in text
+    assert "Level 4 Enterprise Governed Platform" in text
+    assert "vad control-plane serve" in text
+    assert "BSL 1.1" in text
+    assert "Apache 2.0" in text
+    assert "support@condensate.io" in text
 
 
 def test_reference_architecture_lists_implemented_and_directional_level3_scope():

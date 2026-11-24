@@ -165,3 +165,9 @@ desktop.ini
 planning_artifacts/
 evidence/
 proposals/
+
+# Runtime local audit databases & JSONL logs
+audit/audit.db
+audit/audit.jsonl
+audit/*.db
+audit/*.jsonl
