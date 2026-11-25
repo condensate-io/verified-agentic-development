@@ -61,8 +61,8 @@ def test_fresh_migration_reaches_v12_and_is_idempotent(tmp_path):
             for row in conn.execute("PRAGMA table_info(task_leases)").fetchall()
         }
 
-    assert SCHEMA_VERSION == 12
-    assert version == 12
+    assert SCHEMA_VERSION >= 12
+    assert version == SCHEMA_VERSION
     assert "fence_token" in lease_cols
     assert {
         "idempotency_records",
@@ -181,7 +181,7 @@ def test_upgrade_from_v11_preserves_existing_data_and_backfills_fence_token(tmp_
     reopened.migrate()
 
     with sqlite3.connect(db_path) as conn:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 12
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
         # Running _migrate_012 directly again must remain idempotent
         reopened._migrate_012(conn)
 

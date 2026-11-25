@@ -274,4 +274,27 @@ audit verification from the authoritative ledger alone.
   (`Strategic Objective → Programme → Engineering Objective → EIP → Task → Proof Obligation → Evidence`)
   keeping `EIP` as the atomic verification contract while enabling multi-EIP
   programme decomposition and rollup verification.
+- **Implemented Stage 03–04 & Scope B Foundations (SQLite Schema v13):**
+  - **Hierarchical Intent & Multi-EIP Delivery:** `IntentHierarchyService`,
+    `HierarchicalDeliveryWorkflow`, and `verify_objective_audit_trail` govern
+    `StrategicObjective → Programme → EngineeringObjective → ChildEIPRef`
+    chains with non-downgradable floors, budget ceilings, topological parallel
+    tranches, and coordinated release/rollback (`vad hierarchy`,
+    `vad audit verify-objective`).
+  - **Scope B Built-In Domain Packs:** Built-in `Infrastructure`, `Operations`,
+    `Business`, and `Compliance` domain packs execute through
+    `DomainPackExecutionRunner` (`vad domain-pack list`,
+    `vad domain-pack evaluate`) reusing `ReleaseDecisionEngine` and Ed25519
+    DSSE attestations without modifying core packages.
+  - **Opt-In Remote Workers & Enterprise RBAC:** `RemoteWorkerCoordinator`
+    preserves `LOCAL_FIRST` (`remote_workers_enabled = False`) by default while
+    supporting opt-in mTLS/OIDC worker pools, fenced `HostSessionToken`
+    issuance, constant-time SHA-256 `ArtifactTransferManifest` bundle checks,
+    and enterprise RBAC release-guardian group co-authorization
+    (`vad remote-workers list`).
+  - **Stage 04 Continuous Verified Operations:**
+    `ContinuousVerifiedOperationsWorkflow` connects runtime/drift incidents to
+    `IncidentResponder`, `PostMortemGenerator`, `DefectLinkRecord`,
+    `EIPSeeder`, `ObservedFact` + candidate `InferredLesson`, and governed
+    remediation delivery (`vad operations remediate`).
 

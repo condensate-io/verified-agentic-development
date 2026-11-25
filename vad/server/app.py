@@ -28,6 +28,7 @@ from vad.server.api.work_items import WorkItemSchedulerService, WorkItemService
 from vad.connectors.registry import get_connector_registry
 from vad.connectors.webhook_receiver import WebhookReceiver
 from vad.server.api.connectors_admin import ConnectorsAdminService
+from vad.server.api.horizon import HorizonApiService
 from vad.server.api.webhooks import WebhookIngressService
 from vad.server.db.store import ServerStore
 
@@ -169,7 +170,69 @@ class VADApi:
             return self._autonomy_metrics_response()
         if path.startswith("/audit/verify-trail/") and method == "GET":
             return self._audit_verify_trail_response(path)
+        if path.startswith("/audit/verify-objective/") and method == "GET":
+            return self._audit_verify_objective_response(path)
+        if path == "/intent-hierarchy/nodes" and method == "POST":
+            return self._horizon_service().create_hierarchy_node(body or {})
+        if path == "/intent-hierarchy/nodes" and method == "GET":
+            query = parse_qs(parsed.query)
+            return self._horizon_service().list_hierarchy_nodes(
+                level=query.get("level", [None])[0],
+                parent_id=query.get("parent_id", [None])[0],
+            )
+        if path.startswith("/intent-hierarchy/objectives/"):
+            return self._intent_hierarchy_objective_response(path, method, body or {})
+        if path == "/domain-packs" and method == "GET":
+            return self._horizon_service().list_domain_packs()
+        if path == "/domain-packs/evaluate" and method == "POST":
+            return self._horizon_service().evaluate_domain_pack_proposal(body or {})
+        if path == "/remote-workers" and method == "GET":
+            query = parse_qs(parsed.query)
+            return self._horizon_service().list_remote_workers(role=query.get("role", [None])[0])
+        if path == "/remote-workers/admit" and method == "POST":
+            return self._horizon_service().admit_remote_worker(body or {})
+        if path == "/remote-workers/manifests" and method == "POST":
+            return self._horizon_service().record_transfer_manifest(body or {})
+        if path == "/remote-workers/manifests" and method == "GET":
+            query = parse_qs(parsed.query)
+            return self._horizon_service().list_transfer_manifests(
+                run_id=query.get("run_id", [None])[0],
+                work_item_id=query.get("work_item_id", [None])[0],
+            )
+        if path == "/operations/remediate" and method == "POST":
+            return self._horizon_service().remediate_operation_incident(body or {})
         return 404, {"error": "not_found"}
+
+    def _horizon_service(self) -> HorizonApiService:
+        if not hasattr(self, "_cached_horizon_service") or self._cached_horizon_service is None:
+            self._cached_horizon_service = HorizonApiService(self.db)
+        return self._cached_horizon_service
+
+    def _intent_hierarchy_objective_response(
+        self,
+        path: str,
+        method: str,
+        body: dict[str, Any],
+    ) -> tuple[int, dict[str, Any]]:
+        parts = [unquote(p) for p in path.split("/") if p]
+        if len(parts) == 4 and parts[0] == "intent-hierarchy" and parts[1] == "objectives":
+            objective_id, action = parts[2], parts[3]
+            if action == "approve" and method == "POST":
+                return self._horizon_service().approve_objective(objective_id, body)
+            if action == "rollup" and method == "GET":
+                return self._horizon_service().get_objective_rollup(objective_id)
+        return 404, {"error": "not_found"}
+
+    def _audit_verify_objective_response(self, path: str) -> tuple[int, dict[str, Any]]:
+        if self.db is None:
+            return 503, {"error": "service_unavailable", "message": "database not configured"}
+        from vad.audit.verify_trail import verify_objective_audit_trail
+
+        parts = [unquote(p) for p in path.split("/") if p]
+        if len(parts) != 3 or parts[0] != "audit" or parts[1] != "verify-objective":
+            return 404, {"error": "not_found"}
+        report = verify_objective_audit_trail(self.db, parts[2])
+        return (200 if report.verified else 422), report.model_dump(mode="json")
 
     def _release_decisions_response(self, *, run_id: str | None = None) -> tuple[int, dict[str, Any]]:
         if self.db is None:

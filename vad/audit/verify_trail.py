@@ -3,12 +3,22 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import re
 from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError
 
+from vad.contracts.intent_hierarchy import (
+    DecompositionStatus,
+    EngineeringObjective,
+    Programme,
+    StrategicObjective,
+    evaluate_objective_rollup,
+    validate_hierarchy_chain,
+)
 from vad.contracts.models import AssuranceLevel, RiskTier
 from vad.control_plane.checkpoints import STAGE_ORDER, RunCheckpoint
+from vad.control_plane.remote_workers import ArtifactTransferManifest
 from vad.evidence.bundle import EvidenceBundle, RunEvidence
 from vad.memory.authority_guard import _find_forbidden_fields
 from vad.release.decision import ReleaseDecision
@@ -19,6 +29,16 @@ from vad.review.dsse_attestation import (
 )
 from vad.server.db.store import ServerStore, StoredRunEvidence
 from vad.signing.ed25519_local import DSSEKeyProvider
+
+
+_SHA256_HEX_RE = re.compile(r"^[a-f0-9]{64}$")
+_APPROVED_DECOMPOSITION_STATUSES = frozenset(
+    {
+        DecompositionStatus.APPROVED,
+        DecompositionStatus.EXECUTING,
+        DecompositionStatus.VERIFIED,
+    }
+)
 
 
 def _utc_now() -> datetime:
@@ -40,6 +60,18 @@ class AuditTrailReport(BaseModel):
     verified: bool
     evidence_digest: str | None = None
     checks: list[AuditCheckItem] = Field(default_factory=list)
+    failures: list[str] = Field(default_factory=list)
+    checked_at: datetime = Field(default_factory=_utc_now)
+
+
+class ObjectiveAuditTrailReport(BaseModel):
+    """Comprehensive audit verification report for an EngineeringObjective hierarchy."""
+
+    objective_id: str
+    verified: bool
+    decomposition_status: str | None = None
+    checks: list[AuditCheckItem] = Field(default_factory=list)
+    child_reports: dict[str, AuditTrailReport] = Field(default_factory=dict)
     failures: list[str] = Field(default_factory=list)
     checked_at: datetime = Field(default_factory=_utc_now)
 
@@ -479,6 +511,95 @@ def _check_memory_authority(evidence: RunEvidence | None) -> AuditCheckItem:
     )
 
 
+def _check_artifact_transfer_manifests(
+    manifests: list[ArtifactTransferManifest],
+    *,
+    run_id: str,
+    artifact_payloads: dict[str, dict[str, bytes]] | None,
+    require_transfer_manifests: bool,
+) -> AuditCheckItem:
+    if not manifests:
+        if require_transfer_manifests:
+            return AuditCheckItem(
+                check="artifact_transfer_manifests",
+                passed=False,
+                detail=f"No artifact transfer manifests recorded for run_id '{run_id}'",
+            )
+        if artifact_payloads:
+            return AuditCheckItem(
+                check="artifact_transfer_manifests",
+                passed=False,
+                detail=(
+                    "Artifact payloads provided for unrecorded transfer_id(s): "
+                    f"{', '.join(sorted(artifact_payloads))}"
+                ),
+            )
+        return AuditCheckItem(
+            check="artifact_transfer_manifests",
+            passed=True,
+            detail="No artifact transfer manifests recorded and none required",
+        )
+
+    violations: list[str] = []
+    manifest_ids: set[str] = set()
+
+    for manifest in manifests:
+        manifest_ids.add(manifest.transfer_id)
+        if manifest.run_id != run_id:
+            violations.append(
+                f"Manifest '{manifest.transfer_id}' run_id '{manifest.run_id}' "
+                f"does not match '{run_id}'"
+            )
+        if manifest.fence_token < 1:
+            violations.append(
+                f"Manifest '{manifest.transfer_id}' has invalid fence_token {manifest.fence_token}"
+            )
+        for path, digest in manifest.artifacts.items():
+            if not _SHA256_HEX_RE.fullmatch(digest):
+                violations.append(
+                    f"Manifest '{manifest.transfer_id}' artifact '{path}' has invalid SHA-256 digest"
+                )
+
+        if artifact_payloads is not None:
+            if manifest.transfer_id not in artifact_payloads:
+                violations.append(
+                    f"Missing artifact payloads for transfer_id '{manifest.transfer_id}'"
+                )
+            else:
+                bundle_ok, bundle_failures = manifest.verify_bundle(
+                    artifact_payloads[manifest.transfer_id]
+                )
+                if not bundle_ok:
+                    violations.extend(
+                        f"{manifest.transfer_id}: {reason}" for reason in bundle_failures
+                    )
+
+    if artifact_payloads is not None:
+        extra_ids = sorted(tid for tid in artifact_payloads if tid not in manifest_ids)
+        if extra_ids:
+            violations.append(
+                f"Artifact payloads provided for unrecorded transfer_id(s): {', '.join(extra_ids)}"
+            )
+
+    if violations:
+        return AuditCheckItem(
+            check="artifact_transfer_manifests",
+            passed=False,
+            detail="; ".join(violations),
+        )
+
+    detail = (
+        f"Verified {len(manifests)} artifact transfer manifest(s) and payload bundle(s)"
+        if artifact_payloads is not None
+        else f"Verified {len(manifests)} artifact transfer manifest(s) (fence_token >= 1 and SHA-256 digests)"
+    )
+    return AuditCheckItem(
+        check="artifact_transfer_manifests",
+        passed=True,
+        detail=detail,
+    )
+
+
 def verify_run_audit_trail(
     store: ServerStore,
     run_id: str,
@@ -488,6 +609,8 @@ def verify_run_audit_trail(
     expected_commit_sha: str | None = None,
     require_checkpoints: bool = True,
     require_release_decision: bool = True,
+    artifact_payloads: dict[str, dict[str, bytes]] | None = None,
+    require_transfer_manifests: bool = False,
 ) -> AuditTrailReport:
     """Independently verify a run's complete audit trail from VAD's authoritative ledger."""
     integrity_check, stored = _check_evidence_integrity(store, run_id)
@@ -522,12 +645,332 @@ def verify_run_audit_trail(
         _check_memory_authority(evidence),
     ]
 
+    try:
+        manifests = store.list_artifact_transfer_manifests(run_id=run_id)
+    except Exception as exc:
+        checks.append(
+            AuditCheckItem(
+                check="artifact_transfer_manifests",
+                passed=False,
+                detail=f"Failed to load artifact transfer manifests for run_id '{run_id}': {exc}",
+            )
+        )
+    else:
+        if require_transfer_manifests or artifact_payloads is not None or manifests:
+            checks.append(
+                _check_artifact_transfer_manifests(
+                    manifests,
+                    run_id=run_id,
+                    artifact_payloads=artifact_payloads,
+                    require_transfer_manifests=require_transfer_manifests,
+                )
+            )
+
     failures = [f"{item.check}: {item.detail}" for item in checks if not item.passed]
     return AuditTrailReport(
         run_id=run_id,
         verified=len(checks) > 0 and all(item.passed for item in checks),
         evidence_digest=stored.evidence_digest if stored is not None else None,
         checks=checks,
+        failures=failures,
+        checked_at=_utc_now(),
+    )
+
+
+def _load_objective_node(
+    store: ServerStore,
+    objective_node_id: str,
+) -> tuple[AuditCheckItem, EngineeringObjective | None, str | None]:
+    try:
+        node = store.load_intent_hierarchy_node(objective_node_id)
+    except KeyError:
+        return (
+            AuditCheckItem(
+                check="objective_loaded",
+                passed=False,
+                detail=f"Intent hierarchy node '{objective_node_id}' not found",
+            ),
+            None,
+            None,
+        )
+    except Exception as exc:
+        return (
+            AuditCheckItem(
+                check="objective_loaded",
+                passed=False,
+                detail=f"Failed to load intent hierarchy node '{objective_node_id}': {exc}",
+            ),
+            None,
+            None,
+        )
+
+    status_value = node.decomposition_status.value
+    if not isinstance(node, EngineeringObjective):
+        return (
+            AuditCheckItem(
+                check="objective_loaded",
+                passed=False,
+                detail=(
+                    f"Node '{objective_node_id}' has level '{node.level.value}', "
+                    "expected 'engineering_objective'"
+                ),
+            ),
+            None,
+            status_value,
+        )
+
+    return (
+        AuditCheckItem(
+            check="objective_loaded",
+            passed=True,
+            detail=f"Loaded EngineeringObjective '{node.node_id}'",
+        ),
+        node,
+        status_value,
+    )
+
+
+def _check_objective_hierarchy_chain(
+    store: ServerStore,
+    node: EngineeringObjective | None,
+) -> AuditCheckItem:
+    if node is None:
+        return AuditCheckItem(
+            check="hierarchy_chain_floors",
+            passed=False,
+            detail="Objective unavailable; cannot verify hierarchy chain floors",
+        )
+
+    strategic: StrategicObjective | None = None
+    programme: Programme | None = None
+
+    if node.parent_id is not None:
+        try:
+            parent = store.load_intent_hierarchy_node(node.parent_id)
+        except Exception as exc:
+            return AuditCheckItem(
+                check="hierarchy_chain_floors",
+                passed=False,
+                detail=f"Failed to load parent node '{node.parent_id}': {exc}",
+            )
+
+        if isinstance(parent, Programme):
+            programme = parent
+            if programme.parent_id is not None:
+                try:
+                    grandparent = store.load_intent_hierarchy_node(programme.parent_id)
+                except Exception as exc:
+                    return AuditCheckItem(
+                        check="hierarchy_chain_floors",
+                        passed=False,
+                        detail=(
+                            f"Failed to load grandparent node '{programme.parent_id}': {exc}"
+                        ),
+                    )
+                if not isinstance(grandparent, StrategicObjective):
+                    return AuditCheckItem(
+                        check="hierarchy_chain_floors",
+                        passed=False,
+                        detail=(
+                            f"Programme '{programme.node_id}' parent '{programme.parent_id}' "
+                            f"has level '{grandparent.level.value}', expected 'strategic_objective'"
+                        ),
+                    )
+                strategic = grandparent
+        elif isinstance(parent, StrategicObjective):
+            strategic = parent
+        else:
+            return AuditCheckItem(
+                check="hierarchy_chain_floors",
+                passed=False,
+                detail=(
+                    f"EngineeringObjective '{node.node_id}' parent '{node.parent_id}' "
+                    f"has level '{parent.level.value}', expected 'programme' or 'strategic_objective'"
+                ),
+            )
+
+    violations = validate_hierarchy_chain(strategic, programme, node)
+    if violations:
+        return AuditCheckItem(
+            check="hierarchy_chain_floors",
+            passed=False,
+            detail="; ".join(violations),
+        )
+
+    return AuditCheckItem(
+        check="hierarchy_chain_floors",
+        passed=True,
+        detail="Verified hierarchy chain linkage, floors, invariants, DAG, and budgets",
+    )
+
+
+def _check_decomposition_approved(node: EngineeringObjective | None) -> AuditCheckItem:
+    if node is None:
+        return AuditCheckItem(
+            check="decomposition_approved",
+            passed=False,
+            detail="Objective unavailable; cannot verify decomposition approval",
+        )
+
+    reasons: list[str] = []
+    if node.decomposition_status not in _APPROVED_DECOMPOSITION_STATUSES:
+        reasons.append(
+            f"decomposition_status is '{node.decomposition_status.value}', "
+            "expected approved, executing, or verified"
+        )
+    approver = (node.approved_by or "").strip()
+    if not approver:
+        reasons.append("approved_by is missing or empty")
+
+    if reasons:
+        return AuditCheckItem(
+            check="decomposition_approved",
+            passed=False,
+            detail="; ".join(reasons),
+        )
+
+    return AuditCheckItem(
+        check="decomposition_approved",
+        passed=True,
+        detail=(
+            f"Decomposition status '{node.decomposition_status.value}' "
+            f"approved by '{approver}'"
+        ),
+    )
+
+
+def _check_objective_rollup(node: EngineeringObjective | None) -> AuditCheckItem:
+    if node is None:
+        return AuditCheckItem(
+            check="objective_rollup",
+            passed=False,
+            detail="Objective unavailable; cannot verify objective rollup",
+        )
+
+    rollup_ok, reasons = evaluate_objective_rollup(node)
+    if not rollup_ok:
+        return AuditCheckItem(
+            check="objective_rollup",
+            passed=False,
+            detail="; ".join(reasons),
+        )
+
+    return AuditCheckItem(
+        check="objective_rollup",
+        passed=True,
+        detail=(
+            f"Verified objective rollup across {len(node.child_eips)} child EIP(s) "
+            "with cross-EIP proof passed"
+        ),
+    )
+
+
+def _check_child_run_trails(
+    store: ServerStore,
+    node: EngineeringObjective | None,
+    *,
+    child_run_ids: dict[str, str] | None,
+    run_id_prefix: str,
+    key_provider: DSSEKeyProvider | None,
+) -> tuple[AuditCheckItem, dict[str, AuditTrailReport]]:
+    if node is None:
+        return (
+            AuditCheckItem(
+                check="child_run_trails",
+                passed=False,
+                detail="Objective unavailable; cannot verify child EIP run trails",
+            ),
+            {},
+        )
+
+    if not node.child_eips:
+        return (
+            AuditCheckItem(
+                check="child_run_trails",
+                passed=False,
+                detail="Objective has no child EIPs to verify",
+            ),
+            {},
+        )
+
+    child_reports: dict[str, AuditTrailReport] = {}
+    violations: list[str] = []
+
+    for child in node.child_eips:
+        child_run_id = (child_run_ids or {}).get(
+            child.eip_name,
+            f"{run_id_prefix}-{child.eip_name}",
+        )
+        child_report = verify_run_audit_trail(
+            store,
+            child_run_id,
+            key_provider=key_provider,
+        )
+        child_reports[child.eip_name] = child_report
+
+        if not child_report.verified:
+            failure_summary = "; ".join(child_report.failures) or "audit verification failed"
+            violations.append(
+                f"Child EIP '{child.eip_name}' (run_id='{child_run_id}') failed: {failure_summary}"
+            )
+        if child.evidence_digest and child_report.evidence_digest != child.evidence_digest:
+            violations.append(
+                f"Child EIP '{child.eip_name}' (run_id='{child_run_id}') evidence_digest mismatch: "
+                f"expected '{child.evidence_digest}', got '{child_report.evidence_digest}'"
+            )
+
+    if violations:
+        return (
+            AuditCheckItem(
+                check="child_run_trails",
+                passed=False,
+                detail="; ".join(violations),
+            ),
+            child_reports,
+        )
+
+    return (
+        AuditCheckItem(
+            check="child_run_trails",
+            passed=True,
+            detail=f"Verified audit trails for all {len(child_reports)} child EIP run(s)",
+        ),
+        child_reports,
+    )
+
+
+def verify_objective_audit_trail(
+    store: ServerStore,
+    objective_node_id: str,
+    *,
+    child_run_ids: dict[str, str] | None = None,
+    run_id_prefix: str = "obj-run",
+    key_provider: DSSEKeyProvider | None = None,
+) -> ObjectiveAuditTrailReport:
+    """Independently verify an EngineeringObjective and its hierarchy from VAD's SQLite ledger."""
+    loaded_check, node, decomposition_status = _load_objective_node(store, objective_node_id)
+    child_check, child_reports = _check_child_run_trails(
+        store,
+        node,
+        child_run_ids=child_run_ids,
+        run_id_prefix=run_id_prefix,
+        key_provider=key_provider,
+    )
+
+    checks: list[AuditCheckItem] = [
+        loaded_check,
+        _check_objective_hierarchy_chain(store, node),
+        _check_decomposition_approved(node),
+        _check_objective_rollup(node),
+        child_check,
+    ]
+    failures = [f"{item.check}: {item.detail}" for item in checks if not item.passed]
+    return ObjectiveAuditTrailReport(
+        objective_id=objective_node_id,
+        verified=len(checks) > 0 and all(item.passed for item in checks),
+        decomposition_status=decomposition_status,
+        checks=checks,
+        child_reports=child_reports,
         failures=failures,
         checked_at=_utc_now(),
     )

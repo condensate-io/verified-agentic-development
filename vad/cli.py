@@ -1836,6 +1836,61 @@ def main():
     audit_verify_parser.add_argument("run_id", help="Run identifier to audit")
     audit_verify_parser.add_argument("--key-dir", help="Optional local Ed25519 key directory for DSSE verification")
     audit_verify_parser.add_argument("--commit-sha", help="Optional expected commit SHA for DSSE verification")
+    audit_verify_obj_parser = audit_subparsers.add_parser("verify-objective", help="Independently verify an EngineeringObjective multi-EIP audit trail")
+    audit_verify_obj_parser.add_argument("--db", default=".vad/control-plane/vad.sqlite3", help="SQLite database path")
+    audit_verify_obj_parser.add_argument("objective_id", help="EngineeringObjective node_id to audit")
+    audit_verify_obj_parser.add_argument("--run-id-prefix", default="obj-run", help="Prefix used for child EIP run_ids")
+    audit_verify_obj_parser.add_argument("--key-dir", help="Optional local Ed25519 key directory for DSSE verification")
+
+    hierarchy_parser = subparsers.add_parser("hierarchy", help="Manage Stage 03 Hierarchical Intent nodes and objective rollups")
+    hierarchy_subparsers = hierarchy_parser.add_subparsers(dest="hierarchy_command")
+    hierarchy_list_parser = hierarchy_subparsers.add_parser("list", help="List hierarchical intent nodes")
+    hierarchy_list_parser.add_argument("--db", default=".vad/control-plane/vad.sqlite3", help="SQLite database path")
+    hierarchy_list_parser.add_argument("--level", choices=["strategic_objective", "programme", "engineering_objective"], help="Filter by intent level")
+    hierarchy_list_parser.add_argument("--parent-id", help="Filter by parent node_id")
+    hierarchy_approve_parser = hierarchy_subparsers.add_parser("approve", help="Approve an EngineeringObjective decomposition")
+    hierarchy_approve_parser.add_argument("--db", default=".vad/control-plane/vad.sqlite3", help="SQLite database path")
+    hierarchy_approve_parser.add_argument("objective_id", help="EngineeringObjective node_id")
+    hierarchy_approve_parser.add_argument("--approver", required=True, help="Human approver identity")
+    hierarchy_approve_parser.add_argument("--role", default="release_guardian", help="Approver role")
+    hierarchy_rollup_parser = hierarchy_subparsers.add_parser("rollup", help="Inspect tranche schedule and rollup release readiness")
+    hierarchy_rollup_parser.add_argument("--db", default=".vad/control-plane/vad.sqlite3", help="SQLite database path")
+    hierarchy_rollup_parser.add_argument("objective_id", help="EngineeringObjective node_id")
+
+    domain_pack_parser = subparsers.add_parser("domain-pack", help="Inspect and execute Scope B non-coding domain packs")
+    domain_pack_subparsers = domain_pack_parser.add_subparsers(dest="domain_pack_command")
+    domain_pack_list_parser = domain_pack_subparsers.add_parser("list", help="List registered Scope B domain packs and proposals")
+    domain_pack_list_parser.add_argument("--db", default=".vad/control-plane/vad.sqlite3", help="SQLite database path")
+    domain_pack_eval_parser = domain_pack_subparsers.add_parser("evaluate", help="Evaluate and execute a Scope B domain proposal")
+    domain_pack_eval_parser.add_argument("--db", default=".vad/control-plane/vad.sqlite3", help="SQLite database path")
+    domain_pack_eval_parser.add_argument("--run-id", required=True, help="Run identifier")
+    domain_pack_eval_parser.add_argument("--domain", required=True, choices=["infrastructure", "operations", "business", "compliance"], help="Scope B domain")
+    domain_pack_eval_parser.add_argument("--target-resource", required=True, help="Target domain resource identifier")
+    domain_pack_eval_parser.add_argument("--summary", required=True, help="Proposal summary")
+    domain_pack_eval_parser.add_argument("--payload-json", default="{}", help="JSON payload string")
+    domain_pack_eval_parser.add_argument("--rollback-plan", required=True, help="Explicit rollback plan")
+    domain_pack_eval_parser.add_argument("--builder", default="domain-agent-1", help="Builder actor")
+    domain_pack_eval_parser.add_argument("--verifier", default="domain-verifier-1", help="Independent verifier actor")
+    domain_pack_eval_parser.add_argument("--approver", action="append", default=[], dest="human_approvers", help="Human release guardian approver")
+    domain_pack_eval_parser.add_argument("--auth-ref", default=None, help="Explicit authorization reference for critical risk")
+
+    remote_workers_parser = subparsers.add_parser("remote-workers", help="Manage opt-in operator-hosted remote workers")
+    remote_workers_subparsers = remote_workers_parser.add_subparsers(dest="remote_workers_command")
+    remote_workers_list_parser = remote_workers_subparsers.add_parser("list", help="List persisted remote workers and pool policy")
+    remote_workers_list_parser.add_argument("--db", default=".vad/control-plane/vad.sqlite3", help="SQLite database path")
+    remote_workers_list_parser.add_argument("--role", help="Filter by worker role")
+
+    operations_parser = subparsers.add_parser("operations", help="Stage 04 Continuous Verified Operations")
+    operations_subparsers = operations_parser.add_subparsers(dest="operations_command")
+    operations_remediate_parser = operations_subparsers.add_parser("remediate", help="Triage incident, seed remediation EIP, and run governed delivery")
+    operations_remediate_parser.add_argument("--db", default=".vad/control-plane/vad.sqlite3", help="SQLite database path")
+    operations_remediate_parser.add_argument("--run-id", required=True, help="Remediation run identifier")
+    operations_remediate_parser.add_argument("--trigger-type", default="runtime_drift", help="Incident trigger type")
+    operations_remediate_parser.add_argument("--description", required=True, help="Incident description")
+    operations_remediate_parser.add_argument("--originating-run-id", default=None, help="Optional originating run_id for escaped defect linkage")
+    operations_remediate_parser.add_argument("--critical", action="store_true", help="Escalate remediation EIP to CRITICAL risk")
+    operations_remediate_parser.add_argument("--approver", action="append", default=[], dest="human_approvers", help="Human release guardian approver")
+    operations_remediate_parser.add_argument("--auth-ref", default=None, help="Explicit authorization reference for critical risk")
 
     workflow_parser = subparsers.add_parser("workflow", help="Run governed end-to-end reference workflows")
     workflow_subparsers = workflow_parser.add_subparsers(dest="workflow_command")
@@ -2072,8 +2127,113 @@ def main():
             print(json.dumps(report.model_dump(mode="json"), indent=2))
             if not report.verified:
                 sys.exit(1)
+        elif args.audit_command == "verify-objective":
+            from vad.audit.verify_trail import verify_objective_audit_trail
+            from vad.server.db.store import ServerStore
+            from vad.signing.ed25519_local import LocalEd25519KeyProvider
+
+            store = ServerStore(Path(args.db))
+            key_provider = LocalEd25519KeyProvider(key_dir=args.key_dir) if args.key_dir else None
+            report = verify_objective_audit_trail(
+                store,
+                args.objective_id,
+                run_id_prefix=args.run_id_prefix,
+                key_provider=key_provider,
+            )
+            print(json.dumps(report.model_dump(mode="json"), indent=2))
+            if not report.verified:
+                sys.exit(1)
         else:
             audit_parser.print_help()
+    elif args.command == "hierarchy":
+        from vad.server.api.horizon import HorizonApiService
+        from vad.server.db.store import ServerStore
+
+        service = HorizonApiService(ServerStore(Path(args.db)))
+        if args.hierarchy_command == "list":
+            code, payload = service.list_hierarchy_nodes(level=args.level, parent_id=args.parent_id)
+            print(json.dumps(payload, indent=2))
+            if code >= 400:
+                sys.exit(1)
+        elif args.hierarchy_command == "approve":
+            code, payload = service.approve_objective(
+                args.objective_id,
+                {"approver": args.approver, "approver_role": args.role},
+            )
+            print(json.dumps(payload, indent=2))
+            if code >= 400:
+                sys.exit(1)
+        elif args.hierarchy_command == "rollup":
+            code, payload = service.get_objective_rollup(args.objective_id)
+            print(json.dumps(payload, indent=2))
+            if code >= 400:
+                sys.exit(1)
+        else:
+            hierarchy_parser.print_help()
+    elif args.command == "domain-pack":
+        from vad.server.api.horizon import HorizonApiService
+        from vad.server.db.store import ServerStore
+
+        service = HorizonApiService(ServerStore(Path(args.db)))
+        if args.domain_pack_command == "list":
+            code, payload = service.list_domain_packs()
+            print(json.dumps(payload, indent=2))
+            if code >= 400:
+                sys.exit(1)
+        elif args.domain_pack_command == "evaluate":
+            code, payload = service.evaluate_domain_pack_proposal(
+                {
+                    "run_id": args.run_id,
+                    "domain": args.domain,
+                    "target_resource": args.target_resource,
+                    "summary": args.summary,
+                    "payload": json.loads(args.payload_json),
+                    "rollback_plan": args.rollback_plan,
+                    "builder_actor": args.builder,
+                    "verifier_actor": args.verifier,
+                    "human_approvers": args.human_approvers,
+                    "explicit_authorization_ref": args.auth_ref,
+                }
+            )
+            print(json.dumps(payload, indent=2))
+            if code >= 400:
+                sys.exit(1)
+        else:
+            domain_pack_parser.print_help()
+    elif args.command == "remote-workers":
+        from vad.server.api.horizon import HorizonApiService
+        from vad.server.db.store import ServerStore
+
+        service = HorizonApiService(ServerStore(Path(args.db)))
+        if args.remote_workers_command == "list":
+            code, payload = service.list_remote_workers(role=args.role)
+            print(json.dumps(payload, indent=2))
+            if code >= 400:
+                sys.exit(1)
+        else:
+            remote_workers_parser.print_help()
+    elif args.command == "operations":
+        from vad.server.api.horizon import HorizonApiService
+        from vad.server.db.store import ServerStore
+
+        service = HorizonApiService(ServerStore(Path(args.db)))
+        if args.operations_command == "remediate":
+            code, payload = service.remediate_operation_incident(
+                {
+                    "remediation_run_id": args.run_id,
+                    "trigger_type": args.trigger_type,
+                    "description": args.description,
+                    "originating_run_id": args.originating_run_id,
+                    "escalate_critical": args.critical,
+                    "human_approvers": args.human_approvers,
+                    "explicit_authorization_ref": args.auth_ref,
+                }
+            )
+            print(json.dumps(payload, indent=2))
+            if code >= 400:
+                sys.exit(1)
+        else:
+            operations_parser.print_help()
     elif args.command == "workflow":
         if args.workflow_command == "verified-delivery":
             from vad.contracts.models import RiskTier

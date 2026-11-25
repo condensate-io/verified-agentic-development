@@ -179,8 +179,15 @@ vad lessons approve <lesson_id> --reviewer alice --role release_guardian
 # Autonomy / verification outcome metrics
 vad metrics autonomy --db .vad/control-plane/vad.sqlite3
 
-# Independently verify a run from the authoritative ledger
+# Independently verify a run or multi-EIP EngineeringObjective from the authoritative ledger
 vad audit verify-trail <run_id> --db .vad/control-plane/vad.sqlite3
+vad audit verify-objective <objective_id> --db .vad/control-plane/vad.sqlite3
+
+# Stage 03 Hierarchical Intent, Scope B Domain Packs, Opt-In Remote Workers & Stage 04 Operations
+vad hierarchy list --db .vad/control-plane/vad.sqlite3
+vad domain-pack list --db .vad/control-plane/vad.sqlite3
+vad remote-workers list --db .vad/control-plane/vad.sqlite3
+vad operations remediate --run-id rem-1 --description "Runtime drift detected" --db .vad/control-plane/vad.sqlite3
 ```
 
 ### 5. Running the Verification Suite in Docker

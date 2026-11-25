@@ -116,3 +116,78 @@ The same data is served at `GET /metrics/autonomy`. Figures are broken down by r
 ## 7. Governance of Learned Rules
 
 Lessons proposed by the system are advisory until a human approves them. Approval decisions are stored in VAD's ledger (`lesson_promotions`) with the reviewer's identity, and only `release_guardian` or `operator` roles can decide. Memory providers can be replaced or taken offline without changing any verification result, approval, or ledger entry. See [Learning Loop and Memory](learning-loop-and-memory.md).
+
+---
+
+## 8. Scope B Non-Coding Domain Pack Governance (`ComplianceDomainPack`, `InfrastructureDomainPack`, `OperationsDomainPack`, `BusinessDomainPack`)
+
+Enterprise governance extends beyond code diffs to infrastructure, operational runbooks, business automation, and compliance controls through four built-in Scope B domain packs registered by `create_default_domain_pack_registry()` (see [Scope B Domain Packs](../architecture/domain-packs.md)):
+
+- **Compliance (`create_compliance_domain_pack` / `CompliancePolicyPack`):** Enforces `rollback_plan` and `audit_ticket` on attestations/access reviews, requires bounded `expires_at` + `compensating_control` for policy exceptions (`exception_request=True`), and escalates critical control families (`SOC2-CC6`, `ISO27001-A.9`, `GDPR-ERASURE`) and exception requests to `RiskTier.CRITICAL`.
+- **Infrastructure (`create_infrastructure_domain_pack` / `InfrastructurePolicyPack`):** Governs Terraform, Kubernetes, IAM, and network proposals; blocks wildcard CIDRs (`0.0.0.0/0`, `::/0` unless `public_edge_approved=True`), wildcard IAM principals/actions (`*`), and privileged Kubernetes containers (`privileged: True`).
+- **Operations (`create_operations_domain_pack` / `OperationsPolicyPack`):** Governs SLO remediation, traffic shifts, and runbooks; enforces bounded `blast_radius_pct` (`0`–`100`) and production `slo_target` + `health_check_probe` requirements.
+- **Business (`create_business_domain_pack` / `BusinessPolicyPack`):** Governs pricing/discount, billing, and entitlement changes; enforces `policy_reference` on high-impact (`>= $5000`) or ledger/tax changes and escalates `>= $50000` or ledger/tax impacts to `RiskTier.CRITICAL`.
+
+All four packs execute through [`DomainPackExecutionRunner`](../../vad/workflows/domain_pack_execution.py), preserving `verifier_actor != builder_actor`, Risk × Evidence guardian approvals, strict Ed25519 DSSE attestations, Schema v13 `domain_proposals` persistence, and advisory `ObservedFact` publication:
+
+```bash
+vad domain-pack list --db .vad/control-plane/vad.sqlite3
+vad domain-pack evaluate \
+  --db .vad/control-plane/vad.sqlite3 \
+  --run-id run-comp-001 \
+  --domain compliance \
+  --target-resource soc2-cc6-access-review \
+  --summary "Quarterly privileged access attestation" \
+  --payload-json '{"framework":"SOC2","control_family":"SOC2-CC6","audit_ticket":"AUD-402"}' \
+  --rollback-plan "Revoke attestation record and reopen access review" \
+  --approver ciso-guardian \
+  --approver secops-lead \
+  --auth-ref AUTH-SOC2-Q4
+```
+
+Equivalent HTTP endpoints: `GET /domain-packs` and `POST /domain-packs/evaluate`.
+
+---
+
+## 9. Stage 04 Continuous Verified Operations (`ContinuousVerifiedOperationsWorkflow` / `vad operations remediate`)
+
+When runtime drift, SLO breaches, or security alerts occur in production, [`ContinuousVerifiedOperationsWorkflow`](../../vad/workflows/continuous_operations.py) closes the operational loop without bypassing VAD release gates:
+
+1. **Incident Triage & Post-Mortem:** `IncidentResponder` triages the trigger into an `IncidentReport` and `PostMortemGenerator` generates a structured `PostMortem`.
+2. **Escaped-Defect Linkage & Remediation EIP Seeding:** When `originating_run_id` is supplied, a `DefectLinkRecord` links the incident back to the originating run's evidence digest for escaped-defect tracking. `EIPSeeder` derives a bounded remediation `EIP` (escalating to `RiskTier.CRITICAL` for `SEV-1` or `--critical`), plus an incident `ObservedFact` and a candidate `PROPOSED` `InferredLesson`.
+3. **Governed Remediation Delivery:** Executes `VerifiedDeliveryWorkflow` under `PolicyStage.RUNTIME`, enforcing independent verification, guardian approvals, and DSSE signing before remediation release:
+
+```bash
+vad operations remediate \
+  --db .vad/control-plane/vad.sqlite3 \
+  --run-id rem-drift-001 \
+  --trigger-type runtime_drift \
+  --description "Production ingress rule drifted from approved CIDR policy" \
+  --originating-run-id run-infra-001 \
+  --approver sre-lead
+```
+
+Equivalent HTTP endpoint: `POST /operations/remediate`.
+
+---
+
+## 10. Multi-EIP Objective Audit Verification (`vad audit verify-objective`)
+
+For Stage 03 programmes decomposed into multiple child `EIP`s under an `EngineeringObjective`, auditors can verify the entire hierarchy and every leaf run trail in one command via [`verify_objective_audit_trail`](../../vad/audit/verify_trail.py):
+
+```bash
+vad audit verify-objective eo-gateway-mtls \
+  --db .vad/control-plane/vad.sqlite3 \
+  --run-id-prefix obj-run \
+  --key-dir .vad/keys
+```
+
+The same verification report (`ObjectiveAuditTrailReport`) is served at `GET /audit/verify-objective/{objective_id}` (`200` when verified, `422` otherwise) and checks:
+
+| Check | What it proves |
+|---|---|
+| `objective_loaded` | The target node exists in `intent_hierarchy_nodes` as an `EngineeringObjective`. |
+| `hierarchy_chain_floors` | All 3-tier parent links (`StrategicObjective -> Programme -> EngineeringObjective`), `risk_floor`, `assurance_floor`, `inherited_invariants`, DAG acyclicity, and `max_total_cost_usd` ceilings hold. |
+| `decomposition_approved` | `decomposition_status` is `approved`, `executing`, or `verified` with a non-empty `approved_by` identity. |
+| `objective_rollup` | Every child `EIP` is verified with fresh evidence and `cross_eip_proof_passed` is `True`. |
+| `child_run_trails` | Every child `EIP` run passes full `verify_run_audit_trail` checks and matches its recorded `evidence_digest`. |

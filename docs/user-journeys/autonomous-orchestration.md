@@ -59,3 +59,37 @@ When all tranches complete:
 - Changes are staged cleanly on the feature branch.
 - Independent verification and the risk-based policy decision must succeed before release. Low and Medium risk changes can proceed autonomously once independently verified; High and Critical changes wait for human approval (see [Verified Delivery Flow](verified-delivery.md)).
 - The orchestrator pauses at the **Staged Commit Gate** for human confirmation before any push occurs.
+
+---
+
+## 5. Stage 03 Multi-EIP Hierarchical Programme Delivery (`HierarchicalDeliveryWorkflow`)
+
+For large engineering initiatives spanning multiple services or modules, VAD decomposes intent above the atomic `EIP` boundary (`StrategicObjective -> Programme -> EngineeringObjective -> ChildEIPRef`) using [`IntentHierarchyService`](../../vad/control_plane/intent_hierarchy_service.py) and [`HierarchicalDeliveryWorkflow`](../../vad/workflows/hierarchical_delivery.py) (see [RFC: Hierarchical Intent Model](../architecture/rfc-hierarchical-intent.md)):
+
+1. **Non-Downgradable Floor & Budget Registration:** `StrategicObjective`, `Programme`, and `EngineeringObjective` nodes are persisted in SQLite Schema v13 (`intent_hierarchy_nodes`). Every `ChildEIPRef` leaf must meet or exceed parent `risk_floor`, `assurance_floor`, and `inherited_invariants`, stay acyclic across `depends_on`, and stay within `max_total_cost_usd`.
+2. **Pre-Dispatch Decomposition Approval:** Before any child `EIP` executes, an authorized guardian approves the decomposition:
+   ```bash
+   vad hierarchy list --db .vad/control-plane/vad.sqlite3 --level engineering_objective
+   vad hierarchy approve eo-gateway-mtls --approver security-owner --role release_guardian --db .vad/control-plane/vad.sqlite3
+   ```
+   (Equivalent HTTP routes: `POST /intent-hierarchy/nodes`, `GET /intent-hierarchy/nodes`, and `POST /intent-hierarchy/objectives/{objective_id}/approve`.)
+3. **Topological Tranche Execution & Downstream Halt:** `HierarchicalDeliveryWorkflow.execute(...)` plans parallel DAG layers (`TrancheSchedulePlan`) and dispatches each eligible `ChildEIPRef` through `VerifiedDeliveryWorkflow`. If any upstream leaf fails verification, exceeds budget, or loses freshness (`evidence_fresh=False`), transitive downstream dependents are automatically blocked (`skipped_blocked_eips`).
+4. **Cross-EIP Integration Proof & Coordinated Release:** Once all leaves pass with fresh evidence, cross-`EIP` integration proofs run and `evaluate_release_readiness` computes `ObjectiveReleaseReadiness` (`releasable_child_eips`, `held_in_staging_eips`, `rollback_required_eips`):
+   ```bash
+   vad hierarchy rollup eo-gateway-mtls --db .vad/control-plane/vad.sqlite3
+   ```
+   (Equivalent HTTP route: `GET /intent-hierarchy/objectives/{objective_id}/rollup`.)
+
+---
+
+## 6. Opt-In Operator-Hosted Remote Workers (`RemoteWorkerCoordinator`)
+
+VAD runs in `WorkerExecutionMode.LOCAL_FIRST` by default (`remote_workers_enabled=False`) with zero mandatory hosted SaaS. Operators running self-hosted build farms or isolated verifier pools can explicitly opt in to remote execution via [`RemoteWorkerCoordinator`](../../vad/control_plane/remote_worker_coordinator.py) (see [Opt-In Operator-Hosted Remote Workers](../architecture/remote-workers.md)):
+
+1. **mTLS / OIDC Admission:** Workers register with `RemoteWorkerIdentity` (`WorkerAuthMethod.MTLS` or `WorkerAuthMethod.OIDC`, `https://` endpoint, and explicit `operator_intent_ref`):
+   ```bash
+   vad remote-workers list --db .vad/control-plane/vad.sqlite3
+   ```
+   (HTTP: `GET /remote-workers` and `POST /remote-workers/admit`.)
+2. **Fenced Dispatch & Scoped Session:** `RemoteWorkerCoordinator.dispatch_work(...)` authorizes `RemoteDispatchEnvelope` (checking role, allowed risk tiers, monotonic `fence_token`, and `HostRole.VERIFIER != builder_actor`), verifies input payloads against `ArtifactTransferManifest.verify_bundle`, and issues a scoped 1-hour `HostSessionToken`.
+3. **Content-Addressed Receipts & Audit Linkage:** Workers return a fenced `RemoteExecutionReceipt` verified by `ingest_execution_receipt(...)`; manifests are persisted in Schema v13 (`artifact_transfer_manifests`, `GET/POST /remote-workers/manifests`) and checked independently by `verify_run_audit_trail`.

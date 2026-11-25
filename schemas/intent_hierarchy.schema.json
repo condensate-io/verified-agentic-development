@@ -1,0 +1,254 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vad.condensate.dev/schemas/intent_hierarchy.schema.json",
+  "title": "IntentHierarchy",
+  "description": "Draft 2020-12 JSON Schema for Hierarchical Intent Model nodes (StrategicObjective, Programme, EngineeringObjective) and atomic ChildEIPRef leaves.",
+  "oneOf": [
+    { "$ref": "#/$defs/StrategicObjective" },
+    { "$ref": "#/$defs/Programme" },
+    { "$ref": "#/$defs/EngineeringObjective" },
+    { "$ref": "#/$defs/ChildEIPRef" }
+  ],
+  "$defs": {
+    "IntentLevel": {
+      "type": "string",
+      "enum": [
+        "strategic_objective",
+        "programme",
+        "engineering_objective",
+        "eip",
+        "task",
+        "proof_obligation",
+        "evidence"
+      ],
+      "description": "Tier level within the hierarchical intent model."
+    },
+    "DecompositionStatus": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "awaiting_approval",
+        "approved",
+        "executing",
+        "verified",
+        "failed",
+        "cancelled"
+      ],
+      "description": "Governance lifecycle state of an intent node decomposition."
+    },
+    "RiskTier": {
+      "type": "string",
+      "enum": ["low", "medium", "high", "critical"],
+      "description": "Ordered risk classification floor or assignment."
+    },
+    "AssuranceLevel": {
+      "type": "string",
+      "enum": [
+        "A1_BASIC",
+        "A2_INDEPENDENT",
+        "A3_ATTESTED",
+        "A4_RESTRICTED"
+      ],
+      "description": "Ordered verification assurance floor or assignment."
+    },
+    "ChildEIPRef": {
+      "type": "object",
+      "description": "Reference to an atomic leaf EIP within an EngineeringObjective DAG.",
+      "properties": {
+        "eip_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "eip_digest": {
+          "type": "string",
+          "minLength": 1
+        },
+        "risk_tier": { "$ref": "#/$defs/RiskTier" },
+        "assurance_level": { "$ref": "#/$defs/AssuranceLevel" },
+        "depends_on": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": []
+        },
+        "verified": {
+          "type": "boolean",
+          "default": false
+        },
+        "evidence_fresh": {
+          "type": "boolean",
+          "default": false
+        },
+        "evidence_digest": {
+          "type": ["string", "null"],
+          "default": null
+        },
+        "cost_usd": {
+          "type": "number",
+          "minimum": 0.0,
+          "default": 0.0
+        }
+      },
+      "required": [
+        "eip_name",
+        "eip_digest",
+        "risk_tier",
+        "assurance_level"
+      ],
+      "additionalProperties": false
+    },
+    "StrategicObjective": {
+      "type": "object",
+      "description": "Top-level strategic outcome governing programmes and risk/invariant floors.",
+      "properties": {
+        "node_id": { "type": "string", "minLength": 1 },
+        "level": {
+          "allOf": [
+            { "$ref": "#/$defs/IntentLevel" },
+            { "const": "strategic_objective" }
+          ]
+        },
+        "title": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "parent_id": {
+          "type": ["string", "null"],
+          "default": null
+        },
+        "risk_floor": {
+          "$ref": "#/$defs/RiskTier",
+          "default": "low"
+        },
+        "assurance_floor": {
+          "$ref": "#/$defs/AssuranceLevel",
+          "default": "A1_BASIC"
+        },
+        "inherited_invariants": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": []
+        },
+        "max_total_cost_usd": {
+          "type": ["number", "null"],
+          "minimum": 0.0,
+          "default": null
+        },
+        "decomposition_status": {
+          "$ref": "#/$defs/DecompositionStatus",
+          "default": "draft"
+        },
+        "approved_by": {
+          "type": ["string", "null"],
+          "default": null
+        }
+      },
+      "required": ["node_id", "level", "title", "description"],
+      "additionalProperties": false
+    },
+    "Programme": {
+      "type": "object",
+      "description": "Coordinated multi-objective programme beneath a StrategicObjective.",
+      "properties": {
+        "node_id": { "type": "string", "minLength": 1 },
+        "level": {
+          "allOf": [
+            { "$ref": "#/$defs/IntentLevel" },
+            { "const": "programme" }
+          ]
+        },
+        "title": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "parent_id": {
+          "type": ["string", "null"],
+          "default": null
+        },
+        "risk_floor": {
+          "$ref": "#/$defs/RiskTier",
+          "default": "low"
+        },
+        "assurance_floor": {
+          "$ref": "#/$defs/AssuranceLevel",
+          "default": "A1_BASIC"
+        },
+        "inherited_invariants": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": []
+        },
+        "max_total_cost_usd": {
+          "type": ["number", "null"],
+          "minimum": 0.0,
+          "default": null
+        },
+        "decomposition_status": {
+          "$ref": "#/$defs/DecompositionStatus",
+          "default": "draft"
+        },
+        "approved_by": {
+          "type": ["string", "null"],
+          "default": null
+        }
+      },
+      "required": ["node_id", "level", "title", "description"],
+      "additionalProperties": false
+    },
+    "EngineeringObjective": {
+      "type": "object",
+      "description": "Decomposable engineering objective backed by a DAG of atomic child EIPs.",
+      "properties": {
+        "node_id": { "type": "string", "minLength": 1 },
+        "level": {
+          "allOf": [
+            { "$ref": "#/$defs/IntentLevel" },
+            { "const": "engineering_objective" }
+          ]
+        },
+        "title": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "parent_id": {
+          "type": ["string", "null"],
+          "default": null
+        },
+        "risk_floor": {
+          "$ref": "#/$defs/RiskTier",
+          "default": "low"
+        },
+        "assurance_floor": {
+          "$ref": "#/$defs/AssuranceLevel",
+          "default": "A1_BASIC"
+        },
+        "inherited_invariants": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": []
+        },
+        "max_total_cost_usd": {
+          "type": ["number", "null"],
+          "minimum": 0.0,
+          "default": null
+        },
+        "decomposition_status": {
+          "$ref": "#/$defs/DecompositionStatus",
+          "default": "draft"
+        },
+        "approved_by": {
+          "type": ["string", "null"],
+          "default": null
+        },
+        "child_eips": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ChildEIPRef" },
+          "default": []
+        },
+        "cross_eip_proof_passed": {
+          "type": "boolean",
+          "default": false
+        },
+        "require_coordinated_release": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "required": ["node_id", "level", "title", "description"],
+      "additionalProperties": false
+    }
+  }
+}

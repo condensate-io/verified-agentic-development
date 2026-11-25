@@ -1,9 +1,9 @@
 # RFC: Hierarchical Intent Model & Multi-EIP Rollup Governance
 
-- **Status:** Proposed (Prototype Contracts Implemented)
+- **Status:** Implemented (Stage 03 Contracts, Service, Multi-EIP Workflow & Schema v13 Persistence)
 - **Scope:** Stage 03 (Autonomous Software Engineering) & Scope B Domain Extensions
 - **Related Docs:** [principles.md](principles.md), [authority-boundaries.md](authority-boundaries.md)
-- **Prototype Contracts:** [`vad/contracts/intent_hierarchy.py`](../../vad/contracts/intent_hierarchy.py)
+- **Implemented Surface:** [`vad/contracts/intent_hierarchy.py`](../../vad/contracts/intent_hierarchy.py), [`vad/control_plane/intent_hierarchy_service.py`](../../vad/control_plane/intent_hierarchy_service.py), [`vad/workflows/hierarchical_delivery.py`](../../vad/workflows/hierarchical_delivery.py), [`vad/audit/verify_trail.py`](../../vad/audit/verify_trail.py)
 
 ---
 
@@ -146,15 +146,49 @@ Because child `EIP`s execute across topological tranches (`compute_execution_tra
 
 ---
 
-## 4. Prototype Contract Surface
+## 4. Implemented Surface
 
-The prototype Pydantic schemas and deterministic validation/rollup helpers are defined in `vad/contracts/intent_hierarchy.py`:
+### 4.1 Contracts & JSON Schema (`vad/contracts/intent_hierarchy.py` & `schemas/intent_hierarchy.schema.json`)
+
+The Pydantic schemas and deterministic governance functions are implemented in [`vad/contracts/intent_hierarchy.py`](../../vad/contracts/intent_hierarchy.py) and mirrored in [`schemas/intent_hierarchy.schema.json`](../../schemas/intent_hierarchy.schema.json) (Draft 2020-12):
 
 - **Enums:** `IntentLevel`, `DecompositionStatus`
 - **Models:** `ChildEIPRef`, `IntentNode`, `StrategicObjective`, `Programme`, `EngineeringObjective`
-- **Functions:**
-  - `validate_child_floor_inheritance(objective: EngineeringObjective) -> list[str]`
-  - `evaluate_objective_rollup(objective: EngineeringObjective) -> tuple[bool, list[str]]`
-  - `compute_execution_tranches(child_eips: list[ChildEIPRef]) -> list[list[str]]`
+- **Validation, Lifecycle & Rollup Functions:**
+  - `validate_child_floor_inheritance(objective: EngineeringObjective) -> list[str]`: checks child `risk_tier >= objective.risk_floor`, `assurance_level >= objective.assurance_floor`, DAG acyclicity, and `max_total_cost_usd` ceiling.
+  - `validate_hierarchy_chain(strategic: StrategicObjective | None, programme: Programme | None, engineering: EngineeringObjective) -> list[str]`: verifies 3-tier `parent_id` linkage, non-downgradable `risk_floor` / `assurance_floor`, `inherited_invariants` preservation, nested `max_total_cost_usd` bounds, child floor inheritance, and known `depends_on` targets.
+  - `submit_decomposition_for_approval(objective: EngineeringObjective) -> EngineeringObjective`: validates non-empty `child_eips` and zero floor/DAG violations before transitioning `DRAFT` / `AWAITING_APPROVAL` to `AWAITING_APPROVAL` (clearing `approved_by`).
+  - `approve_decomposition(objective: EngineeringObjective, *, approver: str, approver_role: str = "release_guardian") -> EngineeringObjective`: enforces authorized approver roles (`release_guardian`, `operator`, `principal_architect`, `programme_lead`) and zero floor/DAG violations before transitioning to `APPROVED`.
+  - `record_child_eip_verification(objective: EngineeringObjective, *, eip_name: str, verified: bool, evidence_fresh: bool, evidence_digest: str | None = None, cost_usd: float | None = None) -> EngineeringObjective`: records per-leaf verification status, freshness, digest, and cost (moving `APPROVED` objectives to `EXECUTING`).
+  - `compute_execution_tranches(child_eips: list[ChildEIPRef]) -> list[list[str]]`: groups child `EIP`s into deterministic topological parallel execution layers and raises `ValueError` on duplicate names or cyclic dependencies.
+  - `compute_blocked_dependents(child_eips: list[ChildEIPRef]) -> dict[str, list[str]]`: identifies all transitive downstream child `EIP`s blocked by any unverified or stale (`evidence_fresh=False`) ancestor.
+  - `evaluate_objective_rollup(objective: EngineeringObjective) -> tuple[bool, list[str]]`: returns `(True, [])` only when status is dispatchable/verified, floor/DAG/budget checks pass, all child `EIP`s are verified and fresh, and `cross_eip_proof_passed` is `True`.
 
-These contracts are standalone and backward-compatible: existing single-`EIP` workflows continue unchanged, while future orchestrator wiring can persist and schedule `EngineeringObjective` DAGs directly over existing `EIP` execution primitives.
+### 4.2 Control-Plane Service & Schema v13 Persistence (`vad/control_plane/intent_hierarchy_service.py`)
+
+[`IntentHierarchyService`](../../vad/control_plane/intent_hierarchy_service.py) manages 3-tier registration, approval gating, topological tranche planning, and coordinated vs. decoupled release readiness over SQLite Schema v13 (`intent_hierarchy_nodes` table in `ServerStore`):
+
+- **Registration & Retrieval:** `register_strategic_objective`, `register_programme`, `register_engineering_objective`, `get_node`, and `list_nodes(level=...)`.
+- **Approval & Scheduling:** `submit_for_approval`, `approve_objective`, and `plan_execution_tranches(objective_id) -> TrancheSchedulePlan` (returning `tranches`, `ready_to_dispatch`, `blocked_dependents`, `completed_eips`, `total_cost_usd`, and `remaining_budget_usd`).
+- **Outcome Recording & Release Readiness:** `record_leaf_outcome`, `record_cross_eip_proof`, and `evaluate_release_readiness(objective_id, *, failed_unrecoverably=...) -> ObjectiveReleaseReadiness` (computing `rollup_verified`, `can_release_objective`, `releasable_child_eips`, `held_in_staging_eips`, and `rollback_required_eips`).
+
+### 4.3 Multi-EIP Delivery Workflow (`vad/workflows/hierarchical_delivery.py`)
+
+[`HierarchicalDeliveryWorkflow`](../../vad/workflows/hierarchical_delivery.py) orchestrates an approved `EngineeringObjective` (`HierarchicalDeliveryRequest` with `ChildEIPExecutionSpec` overrides) across topological tranches over `VerifiedDeliveryWorkflow`:
+
+1. Loads the objective and computes `TrancheSchedulePlan` via `IntentHierarchyService.plan_execution_tranches`.
+2. Executes eligible leaves tranche-by-tranche through `VerifiedDeliveryWorkflow`, enforcing `max_total_cost_usd` ceilings and skipping downstream dependents (`skipped_blocked_eips`) whenever an upstream dependency is unverified or stale.
+3. Records each leaf outcome back onto the `EngineeringObjective`, runs cross-`EIP` integration proof evaluation (`run_cross_eip_proof` / `cross_eip_proof_callback`) once all leaves pass with fresh evidence, and emits a `HierarchicalDeliveryResult` containing `ObjectiveReleaseReadiness`.
+
+### 4.4 Objective Audit Verification, CLI & HTTP Endpoints (`vad/audit/verify_trail.py`, `vad/cli.py`, `vad/server/app.py`)
+
+- **Audit Trail Verification:** [`verify_objective_audit_trail`](../../vad/audit/verify_trail.py) returns an `ObjectiveAuditTrailReport` executing five checks over VAD's authoritative SQLite ledger: `objective_loaded`, `hierarchy_chain_floors`, `decomposition_approved`, `objective_rollup`, and `child_run_trails` (running `verify_run_audit_trail` for every child `EIP` and verifying `evidence_digest` matches).
+- **CLI Commands:**
+  - `vad hierarchy list [--db ...] [--level ...] [--parent-id ...]`
+  - `vad hierarchy approve <objective_id> --approver <id> [--role release_guardian]`
+  - `vad hierarchy rollup <objective_id> [--db ...]`
+  - `vad audit verify-objective <objective_id> [--db ...] [--run-id-prefix obj-run] [--key-dir ...]`
+- **HTTP Routes:**
+  - `POST /intent-hierarchy/nodes` and `GET /intent-hierarchy/nodes`
+  - `POST /intent-hierarchy/objectives/{objective_id}/approve` and `GET /intent-hierarchy/objectives/{objective_id}/rollup`
+  - `GET /audit/verify-objective/{objective_id}` (returns `200` when verified, `422` otherwise)

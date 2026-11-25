@@ -113,3 +113,47 @@ approved = evaluate_domain_proposal(
 assert approved.can_release is True
 assert approved.outcome == ReleaseOutcome.APPROVED_WITH_HUMAN
 ```
+
+---
+
+## 5. Built-In Scope B Domain Packs (`vad/adapters/packs/`)
+
+VAD ships four built-in Scope B domain packs, registered together by [`create_default_domain_pack_registry()`](file:///c:/LocalProjects/condensate-arch-docs/verified-agentic-development/vad/adapters/packs/__init__.py):
+
+| Domain | Module & Factory | Adapter / Policy / Verifier Classes | Key Governance Rules |
+|---|---|---|---|
+| `DomainKind.INFRASTRUCTURE` | [infrastructure.py](file:///c:/LocalProjects/condensate-arch-docs/verified-agentic-development/vad/adapters/packs/infrastructure.py) (`create_infrastructure_domain_pack()`) | `InfrastructureProposalAdapter`, `InfrastructurePolicyPack`, `InfrastructureProofExecutor` | Terraform, Kubernetes, IAM, and network proposals. Requires non-empty `rollback_plan`; rejects wildcard CIDRs (`0.0.0.0/0`, `::/0`) unless `public_edge_approved=True`, wildcard IAM principals/actions (`*`), and privileged Kubernetes containers (`privileged: True`). Escalates destructive changes, IAM privilege escalation, or production `iam`/`kms`/`network_firewall`/`database_cluster` targets to `CRITICAL`. |
+| `DomainKind.OPERATIONS` | [operations.py](file:///c:/LocalProjects/condensate-arch-docs/verified-agentic-development/vad/adapters/packs/operations.py) (`create_operations_domain_pack()`) | `OperationsProposalAdapter`, `OperationsPolicyPack`, `OperationsProofExecutor` | SLO remediation, traffic shifts, scaling, and runbook executions. Validates `rollback_plan`, `blast_radius_pct` (`0`–`100`), production `slo_target` + `health_check_probe`, and `preflight_healthy`. Escalates `blast_radius_pct > 50` or `region_failover`/`data_purge`/`break_glass` to `CRITICAL`. |
+| `DomainKind.BUSINESS` | [business.py](file:///c:/LocalProjects/condensate-arch-docs/verified-agentic-development/vad/adapters/packs/business.py) (`create_business_domain_pack()`) | `BusinessProposalAdapter`, `BusinessPolicyPack`, `BusinessProofExecutor` | Pricing/discount rules, billing/credit adjustments, customer entitlements, and workflow transitions. Validates `rollback_plan`, non-negative `financial_impact_usd`, bounded `discount_pct` (`0`–`100`), and `policy_reference` when `financial_impact_usd >= 5000` or `affects_ledger_or_tax=True`. Escalates `>= 50000` or ledger/tax changes to `CRITICAL`. |
+| `DomainKind.COMPLIANCE` | [compliance.py](file:///c:/LocalProjects/condensate-arch-docs/verified-agentic-development/vad/adapters/packs/compliance.py) (`create_compliance_domain_pack()`) | `ComplianceProposalAdapter`, `CompliancePolicyPack`, `ComplianceProofExecutor` | Compliance attestations, access reviews, and policy exceptions. Requires `rollback_plan` and `audit_ticket`; requires `expires_at` and `compensating_control` when `exception_request=True`. Escalates `SOC2-CC6`, `ISO27001-A.9`, `GDPR-ERASURE`, and `exception_request=True` to `CRITICAL`. |
+
+---
+
+## 6. End-to-End Execution Runner, Schema v13 Persistence & CLI/HTTP Surface
+
+[`DomainPackExecutionRunner`](file:///c:/LocalProjects/condensate-arch-docs/verified-agentic-development/vad/workflows/domain_pack_execution.py) orchestrates Scope B proposals (`DomainExecutionRequest` -> `DomainExecutionResult`) through VAD's unmodified governance core:
+
+1. **Proposal & Separation Checks:** Resolves the pack from `DomainPackRegistry` (defaulting to `create_default_domain_pack_registry()`), builds a canonical `DomainArtifactProposal`, and rejects empty or equal `builder_actor` / `verifier_actor` (`PermissionError`).
+2. **Policy Validation & Isolated Proofs:** Runs `policy_pack.validate_proposal(proposal)` and executes each `obligation_id` via `proof_executor.execute_obligation(..., verifier_actor=verifier)` while re-checking `verifier_actor != builder_actor`.
+3. **Autonomy Decision & Ed25519 DSSE Attestation:** Evaluates `evaluate_domain_proposal(...)` to emit an immutable `ReleaseDecision`, then signs a strict Ed25519 DSSE review attestation (`DSSEAttestor`) binding `proposal.payload_digest`, `release_decision.evidence_digest`, validation errors, and proof obligation outcomes.
+4. **Guarded Apply & Schema v13 Persistence:** When `auto_apply_when_approved=True` and `release_decision.can_release` is `True`, executes `proposal_adapter.apply_proposal(proposal, approved_decision_id=release_decision.decision_id)`. Persists both `ReleaseDecision` and `StoredDomainProposalRecord` into SQLite Schema v13 (`domain_proposals` table in `ServerStore`).
+5. **Advisory `ObservedFact` Publication:** Publishes a typed `ObservedFact` (`VERIFIED_DELIVERY`, `VERIFICATION_FAILURE`, `REJECTED_CHANGE`, or `POLICY_DENIAL`) tagged with `domain:<kind>` through `LearningLoopPublisher` and `MemoryGateway` (preserving memory non-authority).
+
+### CLI & HTTP Usage
+
+- **CLI:**
+  ```bash
+  vad domain-pack list --db .vad/control-plane/vad.sqlite3
+  vad domain-pack evaluate \
+    --db .vad/control-plane/vad.sqlite3 \
+    --run-id run-infra-001 \
+    --domain infrastructure \
+    --target-resource aws_security_group.prod_ingress \
+    --summary "Restrict HTTPS ingress to corporate CIDR" \
+    --payload-json '{"environment":"production","cidr_blocks":["10.20.0.0/16"]}' \
+    --rollback-plan "terraform apply -var-file=previous.tfvars" \
+    --approver sre-lead
+  ```
+- **HTTP Endpoints:**
+  - `GET /domain-packs`: Returns registered `domains` and persisted `proposals` from `domain_proposals`.
+  - `POST /domain-packs/evaluate`: Executes a `DomainExecutionRequest` via `DomainPackExecutionRunner` (`200` on evaluation, `403` on actor-separation error, `422` on invalid input).

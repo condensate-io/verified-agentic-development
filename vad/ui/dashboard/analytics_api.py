@@ -76,4 +76,35 @@ def create_app(sqlite_path: str = "audit/audit.db") -> FastAPI:
 
         return AutonomyMetricsCalculator().compute_from_sqlite(sqlite_path).model_dump(mode="json")
 
+    @app.get("/metrics/horizon")
+    def get_horizon_summary() -> Dict[str, Any]:
+        from vad.adapters.packs import create_default_domain_pack_registry
+        from vad.server.db.store import ServerStore
+
+        p = Path(sqlite_path)
+        registry = create_default_domain_pack_registry()
+        domains = [d.value for d in registry.list_domains()]
+        if not p.exists():
+            return {
+                "registered_domains": domains,
+                "hierarchy_node_count": 0,
+                "domain_proposal_count": 0,
+                "remote_worker_count": 0,
+            }
+        try:
+            store = ServerStore(p)
+            return {
+                "registered_domains": domains,
+                "hierarchy_node_count": len(store.list_intent_hierarchy_nodes()),
+                "domain_proposal_count": len(store.list_domain_proposal_records()),
+                "remote_worker_count": len(store.list_remote_workers()),
+            }
+        except Exception:
+            return {
+                "registered_domains": domains,
+                "hierarchy_node_count": 0,
+                "domain_proposal_count": 0,
+                "remote_worker_count": 0,
+            }
+
     return app

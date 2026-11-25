@@ -10,6 +10,12 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field, field_validator
 
+from vad.contracts.intent_hierarchy import (
+    EngineeringObjective,
+    IntentLevel,
+    Programme,
+    StrategicObjective,
+)
 from vad.evidence.bundle import EvidenceBundle, RunEvidence
 from vad.policy.decisions import PolicyDecision
 from vad.control_plane.checkpoints import RunCheckpoint
@@ -20,13 +26,14 @@ from vad.control_plane.leases import TaskLease, TaskLeaseAcquireRequest, TaskLea
 from vad.control_plane.projection import build_dashboard_projection
 from vad.control_plane.governance_records import OperatorIntentRecord
 from vad.control_plane.plugins import PluginInventoryRecord
+from vad.control_plane.remote_workers import ArtifactTransferManifest, RemoteWorkerIdentity
 from vad.control_plane.run_task_state import RunTaskState
 from vad.control_plane.work_items import WorkItem, WorkItemStatus
 from vad.release.decision import ReleaseDecision
 from vad.repo.diff_workflow import DiffApplyRecord, DiffProposal
 
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 
 
 def _coerce_enum_str(value: Any) -> str:
@@ -161,6 +168,20 @@ class DefectLinkRecord(BaseModel):
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 
+class StoredDomainProposalRecord(BaseModel):
+    proposal_id: str
+    run_id: str
+    domain: str
+    target_resource: str
+    payload_digest: str
+    decision_id: str | None = None
+    can_release: bool = False
+    applied: bool = False
+    proposal_payload: dict[str, Any] = Field(default_factory=dict)
+    apply_receipt: dict[str, Any] | None = None
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+
 class ServerStore:
     def __init__(self, db_path: Path):
         self.db_path = db_path
@@ -208,6 +229,9 @@ class ServerStore:
             if current < 12:
                 self._migrate_012(conn)
                 current = 12
+            if current < 13:
+                self._migrate_013(conn)
+                current = 13
             conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
     def save_run_evidence(self, evidence: RunEvidence) -> StoredRunEvidence:
@@ -2096,3 +2120,379 @@ class ServerStore:
             )
             for row in rows
         ]
+
+    def _migrate_013(self, conn: sqlite3.Connection) -> None:
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS intent_hierarchy_nodes (
+                node_id TEXT PRIMARY KEY,
+                level TEXT NOT NULL,
+                parent_id TEXT,
+                title TEXT NOT NULL,
+                risk_floor TEXT NOT NULL,
+                assurance_floor TEXT NOT NULL,
+                decomposition_status TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_intent_hierarchy_level_parent
+                ON intent_hierarchy_nodes(level, parent_id, node_id);
+
+            CREATE TABLE IF NOT EXISTS domain_proposals (
+                proposal_id TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL,
+                domain TEXT NOT NULL,
+                target_resource TEXT NOT NULL,
+                payload_digest TEXT NOT NULL,
+                decision_id TEXT,
+                can_release INTEGER NOT NULL DEFAULT 0,
+                applied INTEGER NOT NULL DEFAULT 0,
+                payload_json TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_domain_proposals_run_domain
+                ON domain_proposals(run_id, domain, created_at, proposal_id);
+
+            CREATE TABLE IF NOT EXISTS remote_workers (
+                worker_id TEXT PRIMARY KEY,
+                host_type TEXT NOT NULL,
+                role TEXT NOT NULL,
+                auth_method TEXT NOT NULL,
+                endpoint_url TEXT NOT NULL,
+                operator_intent_ref TEXT,
+                payload_json TEXT NOT NULL,
+                registered_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_remote_workers_role
+                ON remote_workers(role, worker_id);
+
+            CREATE TABLE IF NOT EXISTS artifact_transfer_manifests (
+                transfer_id TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL,
+                work_item_id TEXT NOT NULL,
+                fence_token INTEGER NOT NULL,
+                payload_json TEXT NOT NULL,
+                recorded_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_artifact_transfer_manifests_run_wi
+                ON artifact_transfer_manifests(run_id, work_item_id, fence_token, transfer_id);
+            """
+        )
+
+    @staticmethod
+    def _intent_hierarchy_node_from_row(
+        row: sqlite3.Row,
+    ) -> StrategicObjective | Programme | EngineeringObjective:
+        level = IntentLevel(row["level"])
+        data = json.loads(row["payload_json"])
+        if level == IntentLevel.STRATEGIC_OBJECTIVE:
+            return StrategicObjective(**data)
+        if level == IntentLevel.PROGRAMME:
+            return Programme(**data)
+        if level == IntentLevel.ENGINEERING_OBJECTIVE:
+            return EngineeringObjective(**data)
+        raise ValueError(f"Unsupported intent hierarchy node level: {level.value}")
+
+    def save_intent_hierarchy_node(
+        self,
+        node: StrategicObjective | Programme | EngineeringObjective,
+    ) -> StrategicObjective | Programme | EngineeringObjective:
+        self.migrate()
+        payload = json.dumps(node.model_dump(mode="json"), sort_keys=True)
+        updated_at = datetime.now(timezone.utc).isoformat()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO intent_hierarchy_nodes(
+                    node_id, level, parent_id, title, risk_floor, assurance_floor,
+                    decomposition_status, payload_json, updated_at
+                )
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(node_id) DO UPDATE SET
+                    level=excluded.level,
+                    parent_id=excluded.parent_id,
+                    title=excluded.title,
+                    risk_floor=excluded.risk_floor,
+                    assurance_floor=excluded.assurance_floor,
+                    decomposition_status=excluded.decomposition_status,
+                    payload_json=excluded.payload_json,
+                    updated_at=excluded.updated_at
+                """,
+                (
+                    node.node_id,
+                    node.level.value,
+                    node.parent_id,
+                    node.title,
+                    node.risk_floor.value,
+                    node.assurance_floor.value,
+                    node.decomposition_status.value,
+                    payload,
+                    updated_at,
+                ),
+            )
+        return node
+
+    def load_intent_hierarchy_node(
+        self,
+        node_id: str,
+    ) -> StrategicObjective | Programme | EngineeringObjective:
+        self.migrate()
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT level, payload_json FROM intent_hierarchy_nodes WHERE node_id = ?",
+                (node_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(node_id)
+        return self._intent_hierarchy_node_from_row(row)
+
+    def list_intent_hierarchy_nodes(
+        self,
+        *,
+        level: str | IntentLevel | None = None,
+        parent_id: str | None = None,
+    ) -> list[StrategicObjective | Programme | EngineeringObjective]:
+        self.migrate()
+        query = "SELECT level, payload_json FROM intent_hierarchy_nodes"
+        clauses = []
+        params: list[Any] = []
+        if level is not None:
+            clauses.append("level = ?")
+            params.append(_coerce_enum_str(level))
+        if parent_id is not None:
+            clauses.append("parent_id = ?")
+            params.append(parent_id)
+        if clauses:
+            query += " WHERE " + " AND ".join(clauses)
+        query += " ORDER BY updated_at ASC, rowid ASC, node_id ASC"
+        with self._connect() as conn:
+            rows = conn.execute(query, tuple(params)).fetchall()
+        return [self._intent_hierarchy_node_from_row(row) for row in rows]
+
+    def save_domain_proposal_record(
+        self,
+        record: StoredDomainProposalRecord | dict[str, Any],
+    ) -> StoredDomainProposalRecord:
+        if isinstance(record, dict):
+            if "proposal_payload" not in record and "payload" in record:
+                record = {**record, "proposal_payload": record["payload"]}
+            record = StoredDomainProposalRecord(
+                proposal_id=record["proposal_id"],
+                run_id=record["run_id"],
+                domain=record["domain"],
+                target_resource=record["target_resource"],
+                payload_digest=record["payload_digest"],
+                decision_id=record.get("decision_id"),
+                can_release=bool(record.get("can_release", False)),
+                applied=bool(record.get("applied", False)),
+                proposal_payload=record.get("proposal_payload", {}),
+                apply_receipt=record.get("apply_receipt"),
+                **({"created_at": record["created_at"]} if "created_at" in record else {}),
+            )
+        self.migrate()
+        payload = json.dumps(record.model_dump(mode="json"), sort_keys=True)
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO domain_proposals(
+                    proposal_id, run_id, domain, target_resource, payload_digest,
+                    decision_id, can_release, applied, payload_json, created_at
+                )
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(proposal_id) DO UPDATE SET
+                    run_id=excluded.run_id,
+                    domain=excluded.domain,
+                    target_resource=excluded.target_resource,
+                    payload_digest=excluded.payload_digest,
+                    decision_id=excluded.decision_id,
+                    can_release=excluded.can_release,
+                    applied=excluded.applied,
+                    payload_json=excluded.payload_json,
+                    created_at=excluded.created_at
+                """,
+                (
+                    record.proposal_id,
+                    record.run_id,
+                    record.domain,
+                    record.target_resource,
+                    record.payload_digest,
+                    record.decision_id,
+                    1 if record.can_release else 0,
+                    1 if record.applied else 0,
+                    payload,
+                    record.created_at,
+                ),
+            )
+        return record
+
+    def load_domain_proposal_record(
+        self,
+        proposal_id: str,
+    ) -> StoredDomainProposalRecord:
+        self.migrate()
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT payload_json FROM domain_proposals WHERE proposal_id = ?",
+                (proposal_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(proposal_id)
+        return StoredDomainProposalRecord(**json.loads(row["payload_json"]))
+
+    def list_domain_proposal_records(
+        self,
+        *,
+        run_id: str | None = None,
+        domain: str | None = None,
+    ) -> list[StoredDomainProposalRecord]:
+        self.migrate()
+        query = "SELECT payload_json FROM domain_proposals"
+        clauses = []
+        params: list[Any] = []
+        if run_id is not None:
+            clauses.append("run_id = ?")
+            params.append(run_id)
+        if domain is not None:
+            clauses.append("domain = ?")
+            params.append(_coerce_enum_str(domain))
+        if clauses:
+            query += " WHERE " + " AND ".join(clauses)
+        query += " ORDER BY created_at ASC, rowid ASC, proposal_id ASC"
+        with self._connect() as conn:
+            rows = conn.execute(query, tuple(params)).fetchall()
+        return [StoredDomainProposalRecord(**json.loads(row["payload_json"])) for row in rows]
+
+    def save_remote_worker(
+        self,
+        worker: RemoteWorkerIdentity,
+        *,
+        operator_intent_ref: str | None = None,
+    ) -> RemoteWorkerIdentity:
+        self.migrate()
+        payload = json.dumps(worker.model_dump(mode="json"), sort_keys=True)
+        registered_at = datetime.now(timezone.utc).isoformat()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO remote_workers(
+                    worker_id, host_type, role, auth_method, endpoint_url,
+                    operator_intent_ref, payload_json, registered_at
+                )
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(worker_id) DO UPDATE SET
+                    host_type=excluded.host_type,
+                    role=excluded.role,
+                    auth_method=excluded.auth_method,
+                    endpoint_url=excluded.endpoint_url,
+                    operator_intent_ref=excluded.operator_intent_ref,
+                    payload_json=excluded.payload_json,
+                    registered_at=excluded.registered_at
+                """,
+                (
+                    worker.worker_id,
+                    worker.host_type,
+                    worker.role.value,
+                    worker.auth_method.value,
+                    worker.endpoint_url,
+                    operator_intent_ref,
+                    payload,
+                    registered_at,
+                ),
+            )
+        return worker
+
+    def load_remote_worker(self, worker_id: str) -> RemoteWorkerIdentity:
+        self.migrate()
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT payload_json FROM remote_workers WHERE worker_id = ?",
+                (worker_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(worker_id)
+        return RemoteWorkerIdentity(**json.loads(row["payload_json"]))
+
+    def list_remote_workers(
+        self,
+        *,
+        role: str | None = None,
+    ) -> list[RemoteWorkerIdentity]:
+        self.migrate()
+        query = "SELECT payload_json FROM remote_workers"
+        params: tuple[Any, ...] = ()
+        if role is not None:
+            query += " WHERE role = ?"
+            params = (_coerce_enum_str(role),)
+        query += " ORDER BY registered_at ASC, rowid ASC, worker_id ASC"
+        with self._connect() as conn:
+            rows = conn.execute(query, params).fetchall()
+        return [RemoteWorkerIdentity(**json.loads(row["payload_json"])) for row in rows]
+
+    def save_artifact_transfer_manifest(
+        self,
+        manifest: ArtifactTransferManifest,
+    ) -> ArtifactTransferManifest:
+        self.migrate()
+        payload = json.dumps(manifest.model_dump(mode="json"), sort_keys=True)
+        recorded_at = datetime.now(timezone.utc).isoformat()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO artifact_transfer_manifests(
+                    transfer_id, run_id, work_item_id, fence_token, payload_json, recorded_at
+                )
+                VALUES(?, ?, ?, ?, ?, ?)
+                ON CONFLICT(transfer_id) DO UPDATE SET
+                    run_id=excluded.run_id,
+                    work_item_id=excluded.work_item_id,
+                    fence_token=excluded.fence_token,
+                    payload_json=excluded.payload_json,
+                    recorded_at=excluded.recorded_at
+                """,
+                (
+                    manifest.transfer_id,
+                    manifest.run_id,
+                    manifest.work_item_id,
+                    manifest.fence_token,
+                    payload,
+                    recorded_at,
+                ),
+            )
+        return manifest
+
+    def load_artifact_transfer_manifest(
+        self,
+        transfer_id: str,
+    ) -> ArtifactTransferManifest:
+        self.migrate()
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT payload_json FROM artifact_transfer_manifests WHERE transfer_id = ?",
+                (transfer_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(transfer_id)
+        return ArtifactTransferManifest(**json.loads(row["payload_json"]))
+
+    def list_artifact_transfer_manifests(
+        self,
+        *,
+        run_id: str | None = None,
+        work_item_id: str | None = None,
+    ) -> list[ArtifactTransferManifest]:
+        self.migrate()
+        query = "SELECT payload_json FROM artifact_transfer_manifests"
+        clauses = []
+        params: list[Any] = []
+        if run_id is not None:
+            clauses.append("run_id = ?")
+            params.append(run_id)
+        if work_item_id is not None:
+            clauses.append("work_item_id = ?")
+            params.append(work_item_id)
+        if clauses:
+            query += " WHERE " + " AND ".join(clauses)
+        query += " ORDER BY recorded_at ASC, rowid ASC, transfer_id ASC"
+        with self._connect() as conn:
+            rows = conn.execute(query, tuple(params)).fetchall()
+        return [ArtifactTransferManifest(**json.loads(row["payload_json"])) for row in rows]
