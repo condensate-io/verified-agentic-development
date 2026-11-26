@@ -10,7 +10,7 @@ human-approved release decision.
 
 | Artifact | Current version | Source of truth | Compatibility rule |
 | --- | --- | --- | --- |
-| Core Python package | `0.1.0` | `pyproject.toml` `[project].version` | Minor versions may add CLI/API fields and local commands; patch versions must keep existing CLI flags, SQLite migrations, and local API response fields backward compatible. |
+| Core Python package | `0.5.0` | `pyproject.toml` `[project].version` | Minor versions may add CLI/API fields and local commands; patch versions must keep existing CLI flags, SQLite migrations, and local API response fields backward compatible. |
 | Generic MCP package | `1.0.0` | `vad.control_plane.generic_mcp_package` manifest | Major versions may change generated config shape; minor/patch versions must keep `vad mcp run` and documented manual fallback compatible. |
 | Claude Code package | `1.0.0` | `vad.control_plane.claude_code_package` manifest | Minor/patch versions must preserve local `.mcp.json` semantics and reviewable prompt paths. |
 | Codex package | `1.0.0` | `vad.control_plane.codex_package` manifest | Minor/patch versions must preserve local plugin/skill paths and stdio MCP command semantics. |

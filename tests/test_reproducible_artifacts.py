@@ -15,7 +15,7 @@ def test_reproducible_artifact_builder_writes_deterministic_paths_and_digest_rep
     assert first_paths == second_paths
     assert first.artifact_count == len(first_paths)
     assert first.secret_scan_passed is True
-    assert "core/verified-agentic-development-0.1.0/package.json" in first_paths
+    assert any(p.startswith("core/verified-agentic-development-") and p.endswith("/package.json") for p in first_paths)
     assert "schemas/vad-plugin-manifest.schema.json" in first_paths
     assert "schemas/eip.schema.json" in first_paths
     assert "plugins/vad-codex-local/1.0.0/manifest.json" in first_paths

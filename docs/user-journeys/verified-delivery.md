@@ -29,7 +29,7 @@ VAD owns every decision. Hosts and memory providers can be swapped without chang
 5. **Policy decision.** The autonomy matrix compares risk, assurance, freshness, and approvals.
 6. **Release.** A release decision is recorded with a link to the evidence.
 7. **Publish learnings.** The outcome is sent to the memory provider as an observed fact plus, optionally, a *proposed* lesson.
-8. **Reuse.** When a similar task arrives, approved lessons are retrieved during steps 1 and 2.
+8. **Lesson Promotion.** When a similar task arrives, human-approved lessons (`vad lessons approve`) are retrieved during steps 1 and 2 as executable proof obligations.
 
 ---
 

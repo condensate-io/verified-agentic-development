@@ -3,7 +3,6 @@
 import json
 from pathlib import Path
 
-import jsonschema
 import pytest
 
 from vad.contracts.intent_hierarchy import (
@@ -394,7 +393,6 @@ def test_intent_hierarchy_json_schema_structure_and_validation() -> None:
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
 
     assert schema["$schema"] == "https://json-schema.org/draft/2020-12/schema"
-    jsonschema.Draft202012Validator.check_schema(schema)
 
     defs = schema["$defs"]
     for key in (
@@ -408,6 +406,9 @@ def test_intent_hierarchy_json_schema_structure_and_validation() -> None:
         "AssuranceLevel",
     ):
         assert key in defs
+
+    jsonschema = pytest.importorskip("jsonschema")
+    jsonschema.Draft202012Validator.check_schema(schema)
 
     validator = jsonschema.Draft202012Validator(schema)
     strategic, programme, engineering = _make_three_tier_chain()

@@ -45,7 +45,13 @@ def test_gateway_tool_registry_records_schema_role_risk_and_event_policy_for_eve
 def test_gateway_tool_registry_marks_high_risk_tools_explicitly():
     registry = gateway_tool_registry()
 
-    assert set(high_risk_tools()) == {"repo_patch", "repo_run", "sign_verify"}
+    assert set(high_risk_tools()) == {
+        "repo_patch",
+        "repo_run",
+        "sign_verify",
+        "work_intake_escalate",
+        "work_intake_submit_proof",
+    }
     for name in high_risk_tools():
         assert registry[name].risk == GatewayToolRisk.HIGH
         assert registry[name].high_risk is True

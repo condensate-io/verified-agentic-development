@@ -10,7 +10,7 @@
 
 > **Verified Agentic Development (VAD)** is an enterprise control-system model and governance platform for AI-assisted and autonomous software engineering. VAD transforms software delivery from unverified, ad-hoc code generation into a closed-loop control system: **Intent is formalized, proof obligations are machine-executable, agents operate within bounded sandbox loops, and releases require cryptographic attestation.**
 
-**Stage 5 (current):** Evidence-driven autonomy via a Risk × Assurance matrix, fenced leases, Schema v12 ledger extensions, `MemoryAuthorityGuard`, pluggable memory providers, Ed25519 DSSE, and the 8-step Verified Delivery Flow (`vad workflow verified-delivery`).
+**Stage 5 (current):** Model-, host-, and memory-agnostic local-first enterprise control plane across software engineering, cloud infrastructure, operations, business workflows, and compliance—with hierarchical intent governance (`vad hierarchy`, `vad audit verify-objective`), four non-coding domain packs (`vad domain-pack`: Infrastructure, Operations, Business, Compliance), continuous verified operations (`vad operations remediate`), opt-in mTLS/OIDC remote workers with enterprise RBAC (`vad remote-workers`), Risk × Assurance autonomy, fenced leases, Schema v12 ledger extensions, `MemoryAuthorityGuard`, Ed25519 DSSE, and the 8-step Verified Delivery Flow (`vad workflow verified-delivery`).
 
 ### Open-Core Ecosystem & Licensing
 
@@ -41,6 +41,14 @@ VAD is a **Level 4 Enterprise Governed Platform** with automated work intake, ag
 
 ### Core Capabilities
 
+- **Hierarchical Intent & Programme Governance (`vad hierarchy`, `vad audit verify-objective`):**
+  - Govern large initiatives across **Strategic Objective → Programme → Engineering Objective → EIP**, enforcing non-downgradable Risk/Assurance floors, inherited security invariants, aggregate cost/blast-radius ceilings, topological parallel tranches, and coordinated rollback.
+- **Non-Coding Autonomous Domain Packs (`vad domain-pack`):**
+  - Extends VAD beyond software code using the same policy engine and Ed25519 ledger across four packs: **Infrastructure** (Terraform/K8s/IAM, blocking `0.0.0.0/0` & privileged pods), **Operations** (runbooks, traffic shifts, health probes), **Business** (pricing/entitlement/billing gates), and **Compliance** (SOC2/ISO27001/GDPR attestations and time-bounded exceptions).
+- **Continuous Verified Operations & Closed-Loop Incident Learning (`vad operations remediate`):**
+  - Connects runtime and drift alerts back into governance: auto-triages incidents, generates structured post-mortems, links escaped-defect telemetry (`vad metrics autonomy`), seeds `HIGH`/`CRITICAL` remediation EIPs, and extracts candidate lessons gated by human release guardians (`vad lessons approve`).
+- **Opt-In Remote Workers & Enterprise RBAC (`vad remote-workers`):**
+  - Local-first zero-config default, scaling on demand to operator-hosted builder/verifier pools secured by **mTLS / OIDC identities**, monotonic lease `fence_token`s, constant-time SHA-256 artifact manifests, and Enterprise RBAC release-guardian group co-authorization.
 - **Universal Work Intake Connectors (`vad/connectors/`):**
   - Bidirectional integrations with **GitHub Issues & PRs** (HMAC-SHA256, Checks API), **GitLab Issues & MRs** (token auth, MR discussions), **Atlassian Jira** (Cloud & Server, ADF-to-Markdown sanitization, workflow transitions), and **Generic Webhooks** (Linear, Asana, Monday, CI/CD).
   - Ingress Webhook Receiver with cryptographic signature validation, delivery UUID replay guard, and deduplication.

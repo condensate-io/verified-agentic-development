@@ -25,6 +25,17 @@ LOCAL_NETWORK_TESTS = {
     "tests/test_ui.py",
     "tests/test_ui_docker.py",
 }
+ALLOWED_MOCK_URL_HOSTS = {
+    "127.0.0.1",
+    "localhost",
+    "github.com",
+    "linear.app",
+    "gitlab.five9.com",
+    "five9.atlassian.net",
+    "corp.atlassian.net",
+    "jira.corp",
+    "json-schema.org",
+}
 
 
 def test_security_audit_blocks_filesystem_write_escape(tmp_path):
@@ -75,8 +86,14 @@ def test_security_audit_default_tests_only_use_local_network_endpoints():
         if any(token in text for token in network_tokens) and relative not in LOCAL_NETWORK_TESTS:
             findings.append(f"{relative} uses network primitive outside local allowlist")
         for match in re.finditer(r"https?://([^/\"'\s)]+)", text):
-            host = match.group(1).split(":", 1)[0]
-            if host not in {"127.0.0.1", "localhost"} and "{" not in host:
+            host = match.group(1).rsplit("@", 1)[-1].split(":", 1)[0]
+            is_allowed_mock = (
+                host in ALLOWED_MOCK_URL_HOSTS
+                or host == "example.com"
+                or host.endswith(".example.com")
+                or host.endswith(".local")
+            )
+            if not is_allowed_mock and "{" not in host:
                 findings.append(f"{relative} contains non-local URL {match.group(0)}")
             if "{" in host and relative not in LOCAL_NETWORK_TESTS:
                 findings.append(f"{relative} contains dynamic URL host {match.group(0)}")

@@ -27,6 +27,10 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - **Ed25519 DSSE attestation** via local key provider (`vad/signing/ed25519_local.py`); strict mode rejects legacy hardcoded HMAC secrets.
 - **Independent verification** — isolated executor, freshness validator, tree/env digests, builder ≠ verifier for A2+.
 - **OPA Rego policy pack** (`policies/vad.rego`) for optional autonomy cross-checks.
+- **Hierarchical Intent & Programme Governance** (`vad hierarchy`, `vad audit verify-objective`) — Strategic Objective → Programme → Engineering Objective → EIP with non-downgradable Risk/Assurance floors, cost/blast-radius ceilings, topological parallel tranches, and coordinated rollback.
+- **Four Non-Coding Domain Packs** (`vad domain-pack`) — Infrastructure (Terraform/K8s/IAM), Operations (runbooks/traffic shifts), Business (pricing/entitlement/billing), and Compliance (SOC2/ISO27001/GDPR).
+- **Continuous Verified Operations** (`vad operations remediate`) — closed-loop incident triage, post-mortem generation, escaped-defect linkage, `HIGH`/`CRITICAL` remediation EIP seeding, and human-gated lesson extraction.
+- **Opt-In Remote Workers & Enterprise RBAC** (`vad remote-workers`) — mTLS/OIDC worker identities, SHA-256 artifact transfer manifests, and release-guardian group co-authorization.
 - **Domain packs**, remote worker contracts, host role isolation / session tokens.
 - **CLI**
   - `vad workflow verified-delivery`
